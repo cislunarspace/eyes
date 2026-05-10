@@ -160,6 +160,147 @@ class TestAccumulatorOtherStatesReset:
         assert result == PoseState.OFF_AXIS_LEFT
 
 
+class TestFacingTimeAccumulator:
+    """S4: Facing Time Accumulator — cumulative good posture tracking.
+
+    The accumulator advances +1s/s while FACING_SCREEN.
+    Brief deviations (OFF_AXIS_*, NO_FACE) pause accumulation but do NOT reset.
+    At 300s threshold (configurable), emits GoodPostureDue and resets to 0.
+    """
+
+    def test_facing_screen_accumulates_time(self) -> None:
+        """FACING_SCREEN advances the facing time counter."""
+        from eyes.accumulator import AccumulatorEngine
+        engine = AccumulatorEngine()
+        dt = 1.0
+
+        # Accumulate 10 seconds of facing - good_posture_due should remain False
+        for _ in range(10):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+            assert engine.good_posture_due is False
+
+        # After 10s, still not at threshold (300s default)
+        assert engine.facing_accumulator_seconds < 300
+
+    def test_good_posture_due_fires_at_threshold(self) -> None:
+        """At exactly threshold, good_posture_due becomes True."""
+        from eyes.accumulator import AccumulatorEngine
+        # Use 5s threshold for faster test
+        engine = AccumulatorEngine(facing_threshold_seconds=5.0)
+        dt = 1.0
+
+        # Accumulate 4 seconds - should NOT fire
+        for _ in range(4):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+            assert engine.good_posture_due is False
+
+        # 5th second - should fire
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.good_posture_due is True
+
+    def test_off_axis_pauses_accumulator_no_reset(self) -> None:
+        """OFF_AXIS_* and NO_FACE pause accumulation but do NOT reset."""
+        from eyes.accumulator import AccumulatorEngine
+        engine = AccumulatorEngine(facing_threshold_seconds=15.0)  # Higher threshold
+        dt = 1.0
+
+        # Accumulate 5 seconds facing
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.facing_accumulator_seconds == 5.0
+
+        # Pause for 3 seconds (off-axis)
+        for _ in range(3):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert engine.facing_accumulator_seconds == 5.0  # Paused, not reset
+
+        # Resume facing - continue from where we left off (5 + 4 = 9)
+        for _ in range(4):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.facing_accumulator_seconds == 9.0
+        assert engine.good_posture_due is False
+
+    def test_no_face_pauses_accumulator(self) -> None:
+        """NO_FACE pauses accumulation without resetting."""
+        from eyes.accumulator import AccumulatorEngine
+        engine = AccumulatorEngine(facing_threshold_seconds=10.0)
+        dt = 1.0
+
+        # Accumulate 5 seconds facing
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+
+        # Face disappears
+        engine.tick(PoseState.NO_FACE, dt)
+        assert engine.facing_accumulator_seconds == 5.0  # Paused
+
+    def test_reset_after_fire_starts_new_cycle(self) -> None:
+        """After GoodPostureDue fires, accumulator resets to 0 for new cycle."""
+        from eyes.accumulator import AccumulatorEngine
+        engine = AccumulatorEngine(facing_threshold_seconds=5.0)
+        dt = 1.0
+
+        # First cycle: accumulate to threshold
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.good_posture_due is True
+        assert engine.facing_accumulator_seconds == 0.0  # Auto-reset to 0
+
+        # Continue facing - starts fresh accumulation
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.facing_accumulator_seconds == 1.0
+
+    def test_accumulated_time_across_alternating_cycles(self) -> None:
+        """Brief deviations accumulate correctly across facing/off-axis cycles."""
+        from eyes.accumulator import AccumulatorEngine
+        engine = AccumulatorEngine(facing_threshold_seconds=10.0)
+        dt = 1.0
+
+        # Cycle 1: 5s facing
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+
+        # Brief deviation: 3s off-axis (paused)
+        for _ in range(3):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+
+        # Cycle 2: 5s more facing = 10s total = fires
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.good_posture_due is True
+
+    def test_acknowledge_clears_flag(self) -> None:
+        """Calling acknowledge() clears the good_posture_due flag."""
+        from eyes.accumulator import AccumulatorEngine
+        engine = AccumulatorEngine(facing_threshold_seconds=2.0)
+        dt = 1.0
+
+        # Accumulate to threshold
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.good_posture_due is True
+
+        # Acknowledge
+        engine.acknowledge()
+        assert engine.good_posture_due is False
+
+    def test_env_var_invalid_falls_back_to_default(self) -> None:
+        """Invalid EYES_FACING_THRESHOLD_SECONDS falls back to 300s default."""
+        import os
+        from eyes.accumulator import AccumulatorEngine
+        old_env = os.environ.get("EYES_FACING_THRESHOLD_SECONDS")
+
+        try:
+            os.environ["EYES_FACING_THRESHOLD_SECONDS"] = "not_a_number"
+            engine = AccumulatorEngine()  # Should not raise, uses default
+            assert engine._facing_threshold == 300.0
+        finally:
+            if old_env is not None:
+                os.environ["EYES_FACING_THRESHOLD_SECONDS"] = old_env
+            else:
+                del os.environ["EYES_FACING_THRESHOLD_SECONDS"]
+
+
 class TestOverlayMessages:
     """NotifierOverlay shows correct arrow and text for each direction."""
 
