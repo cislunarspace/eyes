@@ -256,6 +256,65 @@ def test_detector_yaw_sign_positive_right(monkeypatch) -> None:
         det_mod._instance = None
 
 
+def test_detector_close_calls_underlying_detector(monkeypatch) -> None:
+    """close() must delegate to the underlying FaceLandmarker.close()."""
+    close_called = False
+
+    class MockFaceLandmarker:
+        def __init__(self, options):
+            pass
+
+        def detect_for_video(self, image, timestamp_ms):
+            class MockResult:
+                face_landmarks = []
+                facial_transformation_matrixes = []
+            return MockResult()
+
+        def close(self):
+            nonlocal close_called
+            close_called = True
+
+        @classmethod
+        def create_from_options(cls, options):
+            return cls(options)
+
+    import eyes.detector as det_mod
+    monkeypatch.setattr(det_mod, "FaceLandmarker", MockFaceLandmarker)
+    detector = det_mod.HeadPoseDetector()
+    detector.detect(_synthetic_frame())  # ensure init
+    assert not close_called
+    detector.close()
+    assert close_called
+
+
+def test_detector_returns_none_when_matrices_empty(monkeypatch) -> None:
+    """When face landmarks exist but transformation matrices are empty, return None."""
+
+    class MockResult:
+        face_landmarks = [[0]]  # face detected
+        facial_transformation_matrixes = []  # but no matrix
+
+    class MockFaceLandmarker:
+        def __init__(self, options):
+            self._result = MockResult()
+
+        def detect_for_video(self, image, timestamp_ms):
+            return self._result
+
+        def close(self):
+            pass
+
+        @classmethod
+        def create_from_options(cls, options):
+            return cls(options)
+
+    import eyes.detector as det_mod
+    monkeypatch.setattr(det_mod, "FaceLandmarker", MockFaceLandmarker)
+    detector = det_mod.HeadPoseDetector()
+    result = detector.detect(_synthetic_frame())
+    assert result is None
+
+
 # ---------------------------------------------------------------------------
 # Fixture-based integration tests
 # ---------------------------------------------------------------------------

@@ -1,10 +1,11 @@
-"""AppController — orchestrates the camera → detect → update-UI loop at 10 Hz."""
+"""AppController — orchestrates the camera → detect → classify → update-UI loop at 10 Hz."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
+from .classifier import classify
 from .main_window import MainWindow
 
 
@@ -12,7 +13,7 @@ class AppController:
     """Drives the 10 Hz tick loop and coordinates all components.
 
     Single QTimer at 100 ms interval:
-      read frame → detect head pose → update window → repeat
+      read frame → detect head pose → classify → update window → repeat
 
     On camera/detector errors the loop keeps running but the UI shows
     the unavailable state. The window close event triggers full cleanup.
@@ -44,26 +45,27 @@ class AppController:
         self._app.exec()
 
     def _tick(self) -> None:
-        """One 10 Hz tick: read, detect, update UI."""
+        """One 10 Hz tick: read, detect, classify, update UI."""
         camera = self._window.camera()
         detector = self._window.detector()
 
         # Try to open camera if not available
         if not camera.is_available:
             camera.retry_open()
-            self._window.set_pose(None, None)
+            self._window.set_state(None, None, None)
             return
 
         frame = camera.read()
         self._window.update_frame(frame)
 
         if frame is None or detector is None:
-            self._window.set_pose(None, None)
+            self._window.set_state(None, None, None)
             return
 
         pose = detector.detect(frame)
         if pose is None:
-            self._window.set_pose(None, None)
+            self._window.set_state(None, None, None)
         else:
             yaw, roll = pose
-            self._window.set_pose(yaw, roll)
+            state = classify(yaw, roll)
+            self._window.set_state(yaw, roll, state)
