@@ -315,3 +315,173 @@ class TestOverlayMessages:
         arrow, text = _MESSAGES[PoseState.OFF_AXIS_RIGHT]
         assert arrow == "→"
         assert text == "向右调整"
+
+
+class TestPresenceTimeAccumulator:
+    """S5: Presence Time Accumulator — cumulative eye-rest tracking.
+
+    The accumulator advances +1s/s while any Face Detected state
+    (FACING_SCREEN, OFF_AXIS_LEFT, OFF_AXIS_RIGHT, OFF_AXIS_OTHER).
+    NO_FACE pauses accumulation but does NOT reset.
+    At 900s threshold (configurable), emits EyeRestDue and resets to 0.
+    """
+
+    def test_any_face_detected_state_accumulates(self) -> None:
+        """All face-detected states (not NO_FACE) advance the presence accumulator."""
+        from eyes.accumulator import AccumulatorEngine
+
+        engine = AccumulatorEngine(eyest_threshold_seconds=60.0)
+        dt = 1.0
+
+        # FACING_SCREEN advances
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.presence_accumulator_seconds == 1.0
+
+        # OFF_AXIS_LEFT advances
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert engine.presence_accumulator_seconds == 2.0
+
+        # OFF_AXIS_RIGHT advances
+        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+        assert engine.presence_accumulator_seconds == 3.0
+
+        # OFF_AXIS_OTHER advances
+        engine.tick(PoseState.OFF_AXIS_OTHER, dt)
+        assert engine.presence_accumulator_seconds == 4.0
+
+    def test_no_face_pauses_not_resets(self) -> None:
+        """NO_FACE pauses accumulation without resetting."""
+        from eyes.accumulator import AccumulatorEngine
+
+        engine = AccumulatorEngine(eyest_threshold_seconds=60.0)
+        dt = 1.0
+
+        # Accumulate 5 seconds
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.presence_accumulator_seconds == 5.0
+
+        # NO_FACE pauses (doesn't advance, doesn't reset)
+        engine.tick(PoseState.NO_FACE, dt)
+        assert engine.presence_accumulator_seconds == 5.0
+
+        # More NO_FACE ticks - still paused
+        engine.tick(PoseState.NO_FACE, dt)
+        assert engine.presence_accumulator_seconds == 5.0
+
+    def test_eyest_due_fires_at_threshold(self) -> None:
+        """At threshold, eye_rest_due becomes True and resets accumulator."""
+        from eyes.accumulator import AccumulatorEngine
+
+        engine = AccumulatorEngine(eyest_threshold_seconds=5.0)
+        dt = 1.0
+
+        # Accumulate 4 seconds - should NOT fire
+        for _ in range(4):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+            assert engine.eye_rest_due is False
+
+        # 5th second - should fire
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.eye_rest_due is True
+        assert engine.presence_accumulator_seconds == 0.0  # Reset to 0
+
+    def test_reset_starts_new_cycle(self) -> None:
+        """After EyeRestDue fires, fresh accumulation starts from 0."""
+        from eyes.accumulator import AccumulatorEngine
+
+        engine = AccumulatorEngine(eyest_threshold_seconds=5.0)
+        dt = 1.0
+
+        # First cycle: reach threshold
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.eye_rest_due is True
+        assert engine.presence_accumulator_seconds == 0.0  # Auto-reset to 0
+
+        # New cycle starts at 0 after acknowledge
+        engine.acknowledge()
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.presence_accumulator_seconds == 1.0
+        assert engine.eye_rest_due is False  # Cleared by acknowledge()
+
+    def test_acknowledge_clears_eye_rest_due(self) -> None:
+        """Calling acknowledge() clears the eye_rest_due flag."""
+        from eyes.accumulator import AccumulatorEngine
+
+        engine = AccumulatorEngine(eyest_threshold_seconds=2.0)
+        dt = 1.0
+
+        # Accumulate to threshold
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.eye_rest_due is True
+
+        # Acknowledge
+        engine.acknowledge()
+        assert engine.eye_rest_due is False
+
+    def test_alternating_face_no_face_accumulates(self) -> None:
+        """Accumulator counts only face-detected time across alternating cycles."""
+        from eyes.accumulator import AccumulatorEngine
+
+        engine = AccumulatorEngine(eyest_threshold_seconds=15.0)
+        dt = 1.0
+
+        # 5s facing
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.presence_accumulator_seconds == 5.0
+
+        # 3s away (paused, not reset)
+        for _ in range(3):
+            engine.tick(PoseState.NO_FACE, dt)
+        assert engine.presence_accumulator_seconds == 5.0  # Still paused
+
+        # 5s more = 10s total (below 15s threshold)
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.presence_accumulator_seconds == 10.0
+        assert engine.eye_rest_due is False
+
+    def test_env_var_eyest_threshold(self) -> None:
+        """EYES_EYEREST_THRESHOLD_SECONDS controls the threshold."""
+        import os
+        from eyes.accumulator import AccumulatorEngine
+
+        old_env = os.environ.get("EYES_EYEREST_THRESHOLD_SECONDS")
+        try:
+            os.environ["EYES_EYEREST_THRESHOLD_SECONDS"] = "60"
+            engine = AccumulatorEngine()
+            assert engine._eyest_threshold == 60.0
+        finally:
+            if old_env is not None:
+                os.environ["EYES_EYEREST_THRESHOLD_SECONDS"] = old_env
+            else:
+                del os.environ["EYES_EYEREST_THRESHOLD_SECONDS"]
+
+    def test_env_var_invalid_falls_back_to_default(self) -> None:
+        """Invalid EYES_EYEREST_THRESHOLD_SECONDS falls back to 900s default."""
+        import os
+        from eyes.accumulator import AccumulatorEngine
+
+        old_env = os.environ.get("EYES_EYEREST_THRESHOLD_SECONDS")
+        try:
+            os.environ["EYES_EYEREST_THRESHOLD_SECONDS"] = "invalid"
+            engine = AccumulatorEngine()
+            assert engine._eyest_threshold == 900.0
+        finally:
+            if old_env is not None:
+                os.environ["EYES_EYEREST_THRESHOLD_SECONDS"] = old_env
+            else:
+                del os.environ["EYES_EYEREST_THRESHOLD_SECONDS"]
+
+
+class TestOverlayEyeRestMessage:
+    """NotifierOverlay shows correct message for eye rest prompt."""
+
+    def test_eye_rest_message(self) -> None:
+        from eyes.overlay import _EVENT_MESSAGES
+        arrow, text = _EVENT_MESSAGES["EYE_REST"]
+        assert arrow == "👀"
+        assert text == "请眺望远方"

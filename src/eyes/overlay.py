@@ -16,6 +16,7 @@ _MESSAGES: dict[PoseState, tuple[str, str]] = {
 # Special event messages (not tied to PoseState)
 _EVENT_MESSAGES: dict[str, tuple[str, str]] = {
     "GOOD_POSTURE": ("✓", "当前姿势良好"),
+    "EYE_REST": ("👀", "请眺望远方"),
 }
 
 _AUTO_DISMISS_MS = 4000
@@ -92,6 +93,19 @@ class NotifierOverlay(QWidget):
     def show_good_posture(self) -> None:
         """Show good posture encouragement."""
         arrow, text = _EVENT_MESSAGES["GOOD_POSTURE"]
+        self._arrow_label.setText(arrow)
+        self._text_label.setText(text)
+
+        self._move_to_active_screen()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+        self._dismiss_timer.start(_AUTO_DISMISS_MS)
+
+    def show_eye_rest(self) -> None:
+        """Show eye rest reminder."""
+        arrow, text = _EVENT_MESSAGES["EYE_REST"]
         self._arrow_label.setText(arrow)
         self._text_label.setText(text)
 
