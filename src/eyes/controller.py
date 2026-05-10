@@ -5,15 +5,20 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from .classifier import classify
+from .accumulator import AccumulatorEngine
+from .classifier import PoseState, classify
 from .main_window import MainWindow
+from .overlay import NotifierOverlay
+
+# Tick interval: 100 ms = 0.1 seconds
+_DT_SECONDS = 0.1
 
 
 class AppController:
     """Drives the 10 Hz tick loop and coordinates all components.
 
     Single QTimer at 100 ms interval:
-      read frame → detect head pose → classify → update window → repeat
+      read frame → detect head pose → classify → accumulate → update UI → repeat
 
     On camera/detector errors the loop keeps running but the UI shows
     the unavailable state. The window close event triggers full cleanup.
@@ -24,6 +29,12 @@ class AppController:
         self._window = MainWindow(camera_index=camera_index)
         self._timer = QTimer()
         self._timer.setInterval(100)  # 10 Hz
+
+        # Accumulator engine for off-axis streak tracking
+        self._accumulator = AccumulatorEngine()
+
+        # Overlay for correction prompts
+        self._overlay = NotifierOverlay()
 
         self._app.aboutToQuit.connect(self._on_about_to_quit)
 
@@ -45,7 +56,7 @@ class AppController:
         self._app.exec()
 
     def _tick(self) -> None:
-        """One 10 Hz tick: read, detect, classify, update UI."""
+        """One 10 Hz tick: read, detect, classify, accumulate, update UI."""
         camera = self._window.camera()
         detector = self._window.detector()
 
@@ -65,7 +76,14 @@ class AppController:
         pose = detector.detect(frame)
         if pose is None:
             self._window.set_state(None, None, None)
+            current_state = PoseState.NO_FACE
         else:
             yaw, roll = pose
             state = classify(yaw, roll)
             self._window.set_state(yaw, roll, state)
+            current_state = state
+
+        # Accumulate off-axis time and trigger overlay if correction due
+        correction = self._accumulator.tick(current_state, _DT_SECONDS)
+        if correction is not None:
+            self._overlay.show_correction(correction)
