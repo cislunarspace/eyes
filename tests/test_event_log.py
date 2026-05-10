@@ -90,7 +90,7 @@ class TestEventLog:
 
         events_file = tmp_path / "events.jsonl"
         content = events_file.read_text()
-        lines = [l for l in content.strip().split("\n") if l]
+        lines = [line for line in content.strip().split("\n") if line]
         assert len(lines) == 5
         assert "STATE_0" in lines[0]
         assert "STATE_4" in lines[4]
@@ -173,7 +173,7 @@ class TestEventLog:
         events_file = tmp_path / "events.jsonl"
         content = events_file.read_text()
 
-        lines = [l for l in content.strip().split("\n") if l]
+        lines = [line for line in content.strip().split("\n") if line]
         assert len(lines) == 1
 
         # Each line should be valid JSON

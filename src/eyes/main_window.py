@@ -6,7 +6,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QImage, QPixmap
 from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
 
@@ -27,9 +27,12 @@ _BADGE_COLORS: dict[PoseState, tuple[str, str]] = {
 class MainWindow(QMainWindow):
     """PySide6 main window with live preview, yaw/roll readout, and pose badge.
 
-    Closing the window triggers QApplication quit so the process terminates
-    cleanly with no orphan threads.
+    Closing the window emits close_requested signal. The controller decides
+    whether to minimize to tray or quit.
     """
+
+    # Signal emitted when user tries to close the window
+    close_requested = Signal()
 
     def __init__(self, camera_index: int = 0) -> None:
         super().__init__()
@@ -121,9 +124,6 @@ class MainWindow(QMainWindow):
         return self._detector
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """Clean up on window close: release camera and detector, then quit."""
-        self._camera.close()
-        if self._detector is not None:
-            self._detector.close()
-            self._detector = None
-        event.accept()
+        """Emit close_requested signal instead of accepting the event directly."""
+        self.close_requested.emit()
+        event.ignore()
