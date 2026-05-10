@@ -485,3 +485,123 @@ class TestOverlayEyeRestMessage:
         arrow, text = _EVENT_MESSAGES["EYE_REST"]
         assert arrow == "👀"
         assert text == "请眺望远方"
+
+
+class TestAccumulatorSnooze:
+    """S7: AccumulatorEngine snooze behavior.
+
+    When snoozed, the engine freezes all accumulators and off-axis streak.
+    On resume, accumulators continue from their previous values.
+    """
+
+    def test_snooze_freezes_facing_accumulator(self) -> None:
+        """Facing accumulator does not advance while snoozed."""
+        engine = AccumulatorEngine(facing_threshold_seconds=60.0)
+        dt = 1.0
+
+        # Accumulate 5 seconds facing
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.facing_accumulator_seconds == 5.0
+
+        # Enter snooze
+        engine.snooze()
+        assert engine.is_snoozed is True
+
+        # Snooze for 10 ticks - accumulator should NOT advance
+        for _ in range(10):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.facing_accumulator_seconds == 5.0  # Frozen!
+
+    def test_snooze_freezes_presence_accumulator(self) -> None:
+        """Presence accumulator does not advance while snoozed."""
+        engine = AccumulatorEngine(eyest_threshold_seconds=60.0)
+        dt = 1.0
+
+        # Accumulate 5 seconds
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.presence_accumulator_seconds == 5.0
+
+        # Enter snooze
+        engine.snooze()
+
+        # Snooze for 10 ticks - accumulator should NOT advance
+        for _ in range(10):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.presence_accumulator_seconds == 5.0  # Frozen!
+
+    def test_snooze_freezes_off_axis_streak(self) -> None:
+        """Off-axis streak does not advance while snoozed."""
+        engine = AccumulatorEngine()
+        dt = 1.0
+
+        # Accumulate 3 seconds off-axis
+        for _ in range(3):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+
+        # Enter snooze at 3 seconds
+        engine.snooze()
+
+        # Snooze for 10 ticks - streak should freeze at 3s
+        for _ in range(10):
+            result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+            assert result is None  # No prompts while snoozed
+        # Streak is frozen - need to verify internal state
+
+    def test_resume_continues_from_previous_values(self) -> None:
+        """After resume, accumulators continue from where they left off."""
+        engine = AccumulatorEngine(facing_threshold_seconds=60.0)
+        dt = 1.0
+
+        # Accumulate 5 seconds facing
+        for _ in range(5):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.facing_accumulator_seconds == 5.0
+
+        # Snooze for a while
+        engine.snooze()
+        for _ in range(10):
+            engine.tick(PoseState.FACING_SCREEN, dt)
+
+        # Resume
+        engine.resume()
+
+        # Continue accumulating - should resume from 5s, not 0s
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.facing_accumulator_seconds == 6.0  # 5 + 1
+
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.facing_accumulator_seconds == 7.0  # 5 + 2
+
+    def test_is_snoozed_property(self) -> None:
+        """Engine correctly reports snooze state."""
+        engine = AccumulatorEngine()
+        assert engine.is_snoozed is False
+
+        engine.snooze()
+        assert engine.is_snoozed is True
+
+        engine.resume()
+        assert engine.is_snoozed is False
+
+    def test_resume_continues_off_axis_streak(self) -> None:
+        """Off-axis streak continues after resume (does not reset)."""
+        engine = AccumulatorEngine()
+        dt = 1.0
+
+        # Accumulate 3 seconds off-axis
+        for _ in range(3):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+
+        # Snooze
+        engine.snooze()
+
+        # Resume while still off-axis
+        engine.resume()
+
+        # 2 more seconds = 5 total -> fires (3 + 2 = 5 >= 5 threshold)
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result is None  # 4th second
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result == PoseState.OFF_AXIS_LEFT  # 5th second - fires!

@@ -1,4 +1,4 @@
-"""AppController — orchestrates the camera → detect → classify → update-UI loop at 10 Hz."""
+"""AppController — orchestrates the camera -> detect -> classify -> update-UI loop at 10 Hz."""
 
 from __future__ import annotations
 
@@ -6,9 +6,12 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from .accumulator import AccumulatorEngine
-from .classifier import PoseState, classify
+from .classifier import NeutralPose, PoseState, Thresholds, classify
+from .config_store import ConfigStore
+from .event_log import EventLog
 from .main_window import MainWindow
 from .overlay import NotifierOverlay
+from .types import AppEventKind
 
 # Tick interval: 100 ms = 0.1 seconds
 _DT_SECONDS = 0.1
@@ -18,14 +21,26 @@ class AppController:
     """Drives the 10 Hz tick loop and coordinates all components.
 
     Single QTimer at 100 ms interval:
-      read frame → detect head pose → classify → accumulate → update UI → repeat
+      read frame -> detect head pose -> classify -> accumulate -> update UI -> repeat
 
     On camera/detector errors the loop keeps running but the UI shows
     the unavailable state. The window close event triggers full cleanup.
     """
 
-    def __init__(self, app: QApplication, camera_index: int = 0) -> None:
+    def __init__(self, app: QApplication, camera_index: int | None = None) -> None:
         self._app = app
+
+        # Load configuration
+        self._config_store = ConfigStore()
+        self._config = self._config_store.load()
+
+        # Event logger
+        self._event_log = EventLog()
+
+        # Determine camera index: CLI arg > config > default 0
+        if camera_index is None:
+            camera_index = self._config.camera_index
+
         self._window = MainWindow(camera_index=camera_index)
         self._timer = QTimer()
         self._timer.setInterval(100)  # 10 Hz
@@ -36,10 +51,28 @@ class AppController:
         # Overlay for correction prompts
         self._overlay = NotifierOverlay()
 
+        # Track previous state for STATE_CHANGE events
+        self._last_state: PoseState | None = None
+        # Track camera availability for CAMERA_UNAVAILABLE/RESUMED events
+        self._camera_was_available = False
+
         self._app.aboutToQuit.connect(self._on_about_to_quit)
 
     def _on_about_to_quit(self) -> None:
         self._timer.stop()
+
+    def _get_classify_kwargs(self) -> dict:
+        """Return classify() kwargs from current config."""
+        return {
+            "neutral": NeutralPose(yaw=self._config.neutral_yaw, roll=self._config.neutral_roll),
+            "thresholds": Thresholds(yaw_deg=self._config.yaw_threshold, roll_deg=self._config.roll_threshold),
+        }
+
+    def _log_state_change(self, state: PoseState) -> None:
+        """Log STATE_CHANGE event if state differs from last."""
+        if state != self._last_state:
+            self._event_log.append(AppEventKind.STATE_CHANGE, state=state.value)
+            self._last_state = state
 
     def run(self) -> None:
         """Show the window, open camera + detector, start the tick loop."""
@@ -48,7 +81,10 @@ class AppController:
         if not self._window.init_camera_and_detector():
             # Camera unavailable — still show the window; tick loop will
             # keep retrying via camera.retry_open()
-            pass
+            self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
+            self._camera_was_available = False
+        else:
+            self._camera_was_available = True
 
         self._timer.timeout.connect(self._tick)
         self._timer.start()
@@ -64,26 +100,38 @@ class AppController:
         if not camera.is_available:
             camera.retry_open()
             self._window.set_state(None, None, None)
+            if self._camera_was_available:
+                self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
+                self._camera_was_available = False
             return
+
+        if not self._camera_was_available:
+            self._event_log.append(AppEventKind.CAMERA_RESUMED)
+            self._camera_was_available = True
 
         frame = camera.read()
         self._window.update_frame(frame)
 
         if frame is None or detector is None:
             self._window.set_state(None, None, None)
-            return
-
-        pose = detector.detect(frame)
-        if pose is None:
-            self._window.set_state(None, None, None)
             current_state = PoseState.NO_FACE
         else:
-            yaw, roll = pose
-            state = classify(yaw, roll)
-            self._window.set_state(yaw, roll, state)
-            current_state = state
+            pose = detector.detect(frame)
+            if pose is None:
+                self._window.set_state(None, None, None)
+                current_state = PoseState.NO_FACE
+            else:
+                yaw, roll = pose
+                state = classify(yaw, roll, **self._get_classify_kwargs())
+                self._window.set_state(yaw, roll, state)
+                current_state = state
+
+        # Log state changes
+        self._log_state_change(current_state)
 
         # Accumulate off-axis time and trigger overlay if correction due
         correction = self._accumulator.tick(current_state, _DT_SECONDS)
         if correction is not None:
+            direction = "LEFT" if correction == PoseState.OFF_AXIS_LEFT else "RIGHT"
+            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="adjust", direction=direction)
             self._overlay.show_correction(correction)

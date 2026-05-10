@@ -77,6 +77,8 @@ class AccumulatorEngine:
         # S5: Presence Time Accumulator — cumulative face-detected time
         self._presence_seconds: float = 0.0
         self._eye_rest_due: bool = False
+        # S7: Snooze state
+        self._snoozed: bool = False
 
     @property
     def good_posture_due(self) -> bool:
@@ -103,8 +105,25 @@ class AccumulatorEngine:
         self._good_posture_due = False
         self._eye_rest_due = False
 
+    @property
+    def is_snoozed(self) -> bool:
+        """True if snooze is active (accumulator frozen)."""
+        return self._snoozed
+
+    def snooze(self) -> None:
+        """Enter snooze mode: freeze all accumulators and off-axis streak."""
+        self._snoozed = True
+
+    def resume(self) -> None:
+        """Exit snooze mode: resume accumulating from current values."""
+        self._snoozed = False
+
     def tick(self, state: PoseState, dt: float) -> Optional[PoseState]:
         """Process one tick and return if correction is due."""
+        # S7: During snooze, accumulate nothing but do not reset anything
+        if self._snoozed:
+            return None
+
         if state in (PoseState.OFF_AXIS_LEFT, PoseState.OFF_AXIS_RIGHT):
             self._off_axis_streak += dt
 
