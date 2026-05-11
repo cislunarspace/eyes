@@ -106,3 +106,52 @@ class TestCameraSource:
         assert cam.open() is False
         assert cam.retry_open() is True
         assert cam.is_available
+
+    @patch("cv2.VideoCapture")
+    def test_retry_open_handles_n_failures_then_success(self, mock_vc_class) -> None:
+        """Source transitions through unavailable -> available cleanly without leaking handles."""
+        mock_cap = MagicMock()
+        # Fail 3 times, then succeed
+        mock_cap.isOpened.side_effect = [False, False, False, True]
+        mock_vc_class.return_value = mock_cap
+
+        cam = CameraSource(index=0)
+
+        # All attempts fail
+        assert cam.retry_open() is False
+        assert not cam.is_available
+        assert cam.retry_open() is False
+        assert not cam.is_available
+        assert cam.retry_open() is False
+        assert not cam.is_available
+
+        # Then succeeds
+        assert cam.retry_open() is True
+        assert cam.is_available
+
+        # VideoCapture.release() was called for each failed attempt
+        assert mock_cap.release.call_count == 3
+
+    @patch("cv2.VideoCapture")
+    def test_read_clears_buffered_frame_on_unavailable(self, mock_vc_class) -> None:
+        """When camera becomes unavailable, buffered frame is cleared."""
+        frame = _fake_frame()
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.read.return_value = (True, frame)
+        mock_vc_class.return_value = mock_cap
+
+        cam = CameraSource(index=0)
+        cam.open()
+
+        # Read successfully
+        result = cam.read()
+        assert result is not None
+
+        # Simulate camera being claimed by another app
+        mock_cap.read.return_value = (False, None)
+
+        # Read fails - marks unavailable and returns None
+        result = cam.read()
+        assert result is None
+        assert not cam.is_available

@@ -20,6 +20,8 @@ from .types import AppEventKind
 
 # Tick interval: 100 ms = 0.1 seconds
 _DT_SECONDS = 0.1
+# Camera retry interval: 5 seconds
+_CAMERA_RETRY_INTERVAL_MS = 5000
 
 
 class AppController:
@@ -50,6 +52,11 @@ class AppController:
         self._timer = QTimer()
         self._timer.setInterval(100)  # 10 Hz
 
+        # Camera retry timer: every 5 seconds when camera is unavailable
+        self._camera_retry_timer = QTimer()
+        self._camera_retry_timer.setInterval(_CAMERA_RETRY_INTERVAL_MS)
+        self._camera_retry_timer.timeout.connect(self._try_reopen_camera)
+
         # Accumulator engine for off-axis streak tracking
         self._accumulator = AccumulatorEngine()
 
@@ -72,6 +79,8 @@ class AppController:
         self._camera_was_available = False
         # Reference to open settings dialog (for calibration sampling)
         self._settings_dialog: SettingsDialog | None = None
+        # Track if we've shown the unavailable message this session
+        self._camera_unavailable_message_shown = False
 
         # Initialize snooze state from persisted config
         self._check_persisted_snooze()
@@ -191,6 +200,7 @@ class AppController:
 
     def _on_about_to_quit(self) -> None:
         self._timer.stop()
+        self._camera_retry_timer.stop()
         self._window.close()
 
     def _get_classify_kwargs(self) -> dict:
@@ -211,11 +221,13 @@ class AppController:
         self._window.show()
 
         if not self._window.init_camera_and_detector():
-            # Camera unavailable — still show the window; tick loop will
-            # keep retrying via camera.retry_open()
+            # Camera unavailable — still show the window
             self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
             self._camera_was_available = False
+            self._camera_unavailable_message_shown = True
             self._tray.set_state(TrayIconState.UNAVAILABLE)
+            self._window.show_camera_unavailable_message()
+            self._camera_retry_timer.start()
         else:
             self._camera_was_available = True
 
@@ -223,6 +235,21 @@ class AppController:
         self._timer.start()
 
         self._app.exec()
+
+    def _try_reopen_camera(self) -> None:
+        """Attempt to reopen the camera. Called every 5 seconds when unavailable."""
+        camera = self._window.camera()
+        if camera.retry_open():
+            # Camera is now available
+            self._event_log.append(AppEventKind.CAMERA_RESUMED)
+            self._camera_was_available = True
+            self._camera_unavailable_message_shown = False
+            self._camera_retry_timer.stop()
+            # Restore to active/paused state
+            self._tray.set_state(
+                TrayIconState.ACTIVE if not self._accumulator.is_snoozed else TrayIconState.PAUSED
+            )
+            self._window.clear_camera_unavailable_message()
 
     def _tick(self) -> None:
         """One 10 Hz tick: read, detect, classify, accumulate, update UI."""
@@ -232,21 +259,18 @@ class AppController:
         camera = self._window.camera()
         detector = self._window.detector()
 
-        # Try to open camera if not available
+        # If camera is unavailable, show message if not already shown
         if not camera.is_available:
-            camera.retry_open()
             self._window.set_state(None, None, None)
             if self._camera_was_available:
                 self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
                 self._camera_was_available = False
                 self._tray.set_state(TrayIconState.UNAVAILABLE)
+                self._camera_retry_timer.start()
+            if not self._camera_unavailable_message_shown:
+                self._window.show_camera_unavailable_message()
+                self._camera_unavailable_message_shown = True
             return
-
-        if not self._camera_was_available:
-            self._event_log.append(AppEventKind.CAMERA_RESUMED)
-            self._camera_was_available = True
-            # Restore to active/paused state (not unavailable)
-            self._tray.set_state(TrayIconState.ACTIVE if not self._accumulator.is_snoozed else TrayIconState.PAUSED)
 
         frame = camera.read()
         self._window.update_frame(frame)

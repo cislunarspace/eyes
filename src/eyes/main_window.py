@@ -64,6 +64,17 @@ class MainWindow(QMainWindow):
         )
         self._apply_badge_style(PoseState.NO_FACE)
 
+        # Camera unavailable status label (hidden by default)
+        self._camera_status_label = QLabel(
+            "摄像头被其他程序占用…等待恢复",
+            alignment=Qt.AlignmentFlag.AlignCenter,
+        )
+        self._camera_status_label.setStyleSheet(
+            "background-color: #2a2a1a; color: #ffcc00; font-size: 16px; padding: 10px;"
+        )
+        self._camera_status_label.setVisible(False)
+        layout.addWidget(self._camera_status_label)
+
         layout.addWidget(self._badge_label)
         layout.addWidget(self._video_label, stretch=1)
         layout.addWidget(self._readout_label)
@@ -74,6 +85,14 @@ class MainWindow(QMainWindow):
             f"background-color: {bg}; color: {fg}; "
             f"font-size: 16px; font-weight: bold; padding: 6px;"
         )
+
+    def show_camera_unavailable_message(self) -> None:
+        """Show the camera unavailable status message."""
+        self._camera_status_label.setVisible(True)
+
+    def clear_camera_unavailable_message(self) -> None:
+        """Hide the camera unavailable status message."""
+        self._camera_status_label.setVisible(False)
 
     def init_camera_and_detector(self) -> bool:
         """Open the camera and build the detector. Returns True on success."""
