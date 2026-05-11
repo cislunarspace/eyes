@@ -9,8 +9,8 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class AppConfig:
-    yaw_threshold: float = 15.0
-    roll_threshold: float = 10.0
+    yaw_threshold: float = 1.0
+    roll_threshold: float = 90.0  # Disabled: roll no longer affects classification
     neutral_yaw: float = 0.0
     neutral_roll: float = 0.0
     camera_index: int = 0

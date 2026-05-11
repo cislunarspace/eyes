@@ -29,8 +29,8 @@ class NeutralPose:
 
 @dataclass(frozen=True)
 class Thresholds:
-    yaw_deg: float = 15.0
-    roll_deg: float = 10.0
+    yaw_deg: float = 1.0
+    roll_deg: float = 90.0  # Disabled: roll no longer affects classification
 
 
 def classify(
@@ -65,19 +65,13 @@ def classify(
         return PoseState.NO_FACE
 
     yaw_dev = yaw - neutral.yaw
-    roll_dev = roll - neutral.roll
 
     yaw_outside = abs(yaw_dev) > thresholds.yaw_deg
-    roll_outside = abs(roll_dev) > thresholds.roll_deg
 
-    if not yaw_outside and not roll_outside:
+    if not yaw_outside:
         return PoseState.FACING_SCREEN
 
-    if yaw_outside:
-        if yaw_dev < 0:
-            return PoseState.OFF_AXIS_LEFT
-        else:
-            return PoseState.OFF_AXIS_RIGHT
-
-    # yaw within threshold but roll outside
-    return PoseState.OFF_AXIS_OTHER
+    if yaw_dev < 0:
+        return PoseState.OFF_AXIS_LEFT
+    else:
+        return PoseState.OFF_AXIS_RIGHT
