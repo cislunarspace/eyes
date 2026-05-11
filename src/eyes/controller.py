@@ -7,13 +7,13 @@ from datetime import datetime, timezone
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from .accumulator import AccumulatorEngine
 from .autostart import AutostartManager
-from .classifier import NeutralPose, PoseState, Thresholds, classify
+from .classifier import NeutralPose, PoseState, Thresholds
 from .config_store import ConfigStore
 from .event_log import EventLog
 from .main_window import MainWindow
 from .overlay import NotifierOverlay
+from .sense_loop import AccumulatorConfig, PromptEvent, SenseLoop
 from .settings_dialog import SettingsDialog
 from .tray_controller import TrayController, TrayIconState
 from .types import AppEventKind
@@ -57,13 +57,13 @@ class AppController:
         self._camera_retry_timer.setInterval(_CAMERA_RETRY_INTERVAL_MS)
         self._camera_retry_timer.timeout.connect(self._try_reopen_camera)
 
-        # Accumulator engine for off-axis streak tracking
-        self._accumulator = AccumulatorEngine(
-            off_axis_streak_threshold_seconds=self._config.off_axis_streak_threshold_seconds,
-            off_axis_repeat_interval_seconds=self._config.off_axis_repeat_interval_seconds,
-            facing_threshold_seconds=self._config.facing_threshold_seconds,
-            eyest_threshold_seconds=self._config.eyest_threshold_seconds,
+        # Qt-free sensing loop for detect -> classify -> accumulate -> prompt events.
+        self._sense_loop = SenseLoop(
+            self._window.detector(),
+            **self._get_classify_kwargs(),
+            accumulator_config=self._get_accumulator_config(),
         )
+        self._accumulator = self._sense_loop.accumulator
 
         # Overlay for correction prompts
         self._overlay = NotifierOverlay()
@@ -164,6 +164,7 @@ class AppController:
     def _on_settings_changed(self) -> None:
         """Handle settings changed - reload config and apply autostart."""
         self._config = self._config_store.load()
+        self._sense_loop.update_classifier(**self._get_classify_kwargs())
         self._autostart_manager.apply_config(self._config.autostart_enabled)
 
     def _on_calibration_completed(self, yaw: float, roll: float) -> None:
@@ -174,6 +175,7 @@ class AppController:
             state=f"CALIBRATED: yaw={yaw:+.1f}°, roll={roll:+.1f}°"
         )
         self._config = self._config_store.load()
+        self._sense_loop.update_classifier(**self._get_classify_kwargs())
 
     def _switch_camera(self, index: int) -> None:
         """Switch to a different camera."""
@@ -215,11 +217,52 @@ class AppController:
             "thresholds": Thresholds(yaw_deg=self._config.yaw_threshold, roll_deg=self._config.roll_threshold),
         }
 
+    def _get_accumulator_config(self) -> AccumulatorConfig:
+        """Return accumulator config from current config."""
+        return AccumulatorConfig(
+            off_axis_streak_threshold_seconds=self._config.off_axis_streak_threshold_seconds,
+            off_axis_repeat_interval_seconds=self._config.off_axis_repeat_interval_seconds,
+            facing_threshold_seconds=self._config.facing_threshold_seconds,
+            eyest_threshold_seconds=self._config.eyest_threshold_seconds,
+        )
+
+    def _check_snooze_expiry(self) -> None:
+        """Check if timed snooze has expired and resume if needed."""
+        snooze_until = self._config_store.load().snooze_until_iso
+        if snooze_until is None or snooze_until == "indefinite":
+            return
+        try:
+            snooze_time = datetime.fromisoformat(snooze_until)
+            if snooze_time.tzinfo is None:
+                snooze_time = snooze_time.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            if now >= snooze_time:
+                # Snooze expired, resume
+                self._accumulator.resume()
+                self._tray.set_state(TrayIconState.ACTIVE)
+                self._config_store.update(snooze_until_iso=None)
+                self._event_log.append(AppEventKind.SNOOZE_END)
+        except ValueError:
+            pass
+
     def _log_state_change(self, state: PoseState) -> None:
         """Log STATE_CHANGE event if state differs from last."""
         if state != self._last_state:
             self._event_log.append(AppEventKind.STATE_CHANGE, state=state.value)
             self._last_state = state
+
+    def _dispatch_prompt_event(self, event: PromptEvent) -> None:
+        """Dispatch a SenseLoop prompt event to logging and overlay output."""
+        if event.kind == "correction" and event.direction is not None:
+            direction = "LEFT" if event.direction == PoseState.OFF_AXIS_LEFT else "RIGHT"
+            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="adjust", direction=direction)
+            self._overlay.show_correction(event.direction)
+        elif event.kind == "good_posture":
+            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="good_posture")
+            self._overlay.show_good_posture()
+        elif event.kind == "eye_rest":
+            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="eye_rest")
+            self._overlay.show_eye_rest()
 
     def run(self) -> None:
         """Show the window, open camera + detector, start the tick loop."""
@@ -280,22 +323,16 @@ class AppController:
         frame = camera.read()
         self._window.update_frame(frame)
 
-        current_yaw: float | None = None
-        current_roll: float | None = None
+        self._sense_loop.detector = detector
+        events = self._sense_loop.tick(frame, _DT_SECONDS)
+        current_yaw = self._sense_loop.current_yaw
+        current_roll = self._sense_loop.current_roll
+        current_state = self._sense_loop.current_state
 
-        if frame is None or detector is None:
+        if current_yaw is None or current_roll is None:
             self._window.set_state(None, None, None)
-            current_state = PoseState.NO_FACE
         else:
-            pose = detector.detect(frame)
-            if pose is None:
-                self._window.set_state(None, None, None)
-                current_state = PoseState.NO_FACE
-            else:
-                current_yaw, current_roll = pose
-                state = classify(current_yaw, current_roll, **self._get_classify_kwargs())
-                self._window.set_state(current_yaw, current_roll, state)
-                current_state = state
+            self._window.set_state(current_yaw, current_roll, current_state)
 
         # Collect calibration samples if settings dialog is open and calibrating
         if self._settings_dialog is not None and current_yaw is not None and current_roll is not None:
@@ -304,22 +341,5 @@ class AppController:
         # Log state changes
         self._log_state_change(current_state)
 
-        # Accumulate off-axis time and trigger overlay if correction due
-        # (AccumulatorEngine.tick() returns None during snooze automatically)
-        correction = self._accumulator.tick(current_state, _DT_SECONDS)
-        if correction is not None:
-            direction = "LEFT" if correction == PoseState.OFF_AXIS_LEFT else "RIGHT"
-            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="adjust", direction=direction)
-            self._overlay.show_correction(correction)
-
-        # S4: good posture encouragement when facing threshold reached
-        if self._accumulator.good_posture_due:
-            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="good_posture")
-            self._overlay.show_good_posture()
-            self._accumulator.acknowledge()
-
-        # S5: eye rest reminder when presence threshold reached
-        if self._accumulator.eye_rest_due:
-            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="eye_rest")
-            self._overlay.show_eye_rest()
-            self._accumulator.acknowledge()
+        for event in events:
+            self._dispatch_prompt_event(event)
