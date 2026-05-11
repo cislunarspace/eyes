@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Optional
 
 from .classifier import PoseState
@@ -10,41 +9,8 @@ from .classifier import PoseState
 # Default constants (can be overridden via constructor)
 _DEFAULT_OFF_AXIS_STREAK_THRESHOLD = 1.0
 _DEFAULT_OFF_AXIS_REPEAT_INTERVAL = 10.0
-_FACING_THRESHOLD_SECONDS = 300.0
-_EYEREST_THRESHOLD_SECONDS = 900.0
-
-
-def _get_facing_threshold() -> float:
-    """Get facing threshold from env var for dev convenience, or use default."""
-    env_val = os.environ.get("EYES_FACING_THRESHOLD_SECONDS")
-    if env_val is not None:
-        try:
-            return float(env_val)
-        except ValueError:
-            return _FACING_THRESHOLD_SECONDS
-    return _FACING_THRESHOLD_SECONDS
-
-
-def _get_eyest_threshold() -> float:
-    """Get eye-rest threshold from env var for dev convenience, or use default."""
-    env_val = os.environ.get("EYES_EYEREST_THRESHOLD_SECONDS")
-    if env_val is not None:
-        try:
-            return float(env_val)
-        except ValueError:
-            return _EYEREST_THRESHOLD_SECONDS
-    return _EYEREST_THRESHOLD_SECONDS
-
-
-def _get_env_float(name: str, default: float) -> float:
-    """Read a float from an env var, falling back to default on missing/invalid."""
-    env_val = os.environ.get(name)
-    if env_val is None:
-        return default
-    try:
-        return float(env_val)
-    except ValueError:
-        return default
+_DEFAULT_FACING_THRESHOLD = 300.0
+_DEFAULT_EYEREST_THRESHOLD = 900.0
 
 
 class AccumulatorEngine:
@@ -79,17 +45,25 @@ class AccumulatorEngine:
         off_axis_streak_threshold_seconds: float | None = None,
         off_axis_repeat_interval_seconds: float | None = None,
     ) -> None:
-        self._facing_threshold = facing_threshold_seconds if facing_threshold_seconds is not None else _get_facing_threshold()
-        self._eyest_threshold = eyest_threshold_seconds if eyest_threshold_seconds is not None else _get_eyest_threshold()
+        self._facing_threshold = (
+            facing_threshold_seconds
+            if facing_threshold_seconds is not None
+            else _DEFAULT_FACING_THRESHOLD
+        )
+        self._eyest_threshold = (
+            eyest_threshold_seconds
+            if eyest_threshold_seconds is not None
+            else _DEFAULT_EYEREST_THRESHOLD
+        )
         self._off_axis_streak_threshold = (
             off_axis_streak_threshold_seconds
             if off_axis_streak_threshold_seconds is not None
-            else _get_env_float("EYES_OFF_AXIS_STREAK_THRESHOLD_SECONDS", _DEFAULT_OFF_AXIS_STREAK_THRESHOLD)
+            else _DEFAULT_OFF_AXIS_STREAK_THRESHOLD
         )
         self._off_axis_repeat_interval = (
             off_axis_repeat_interval_seconds
             if off_axis_repeat_interval_seconds is not None
-            else _get_env_float("EYES_OFF_AXIS_REPEAT_INTERVAL_SECONDS", _DEFAULT_OFF_AXIS_REPEAT_INTERVAL)
+            else _DEFAULT_OFF_AXIS_REPEAT_INTERVAL
         )
         self._off_axis_streak: float = 0.0
         self._repeat_due_at: Optional[float] = None

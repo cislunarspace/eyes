@@ -334,23 +334,6 @@ class TestFacingTimeAccumulator:
         engine.acknowledge()
         assert engine.good_posture_due is False
 
-    def test_env_var_invalid_falls_back_to_default(self) -> None:
-        """Invalid EYES_FACING_THRESHOLD_SECONDS falls back to 300s default."""
-        import os
-        from eyes.accumulator import AccumulatorEngine
-        old_env = os.environ.get("EYES_FACING_THRESHOLD_SECONDS")
-
-        try:
-            os.environ["EYES_FACING_THRESHOLD_SECONDS"] = "not_a_number"
-            engine = AccumulatorEngine()  # Should not raise, uses default
-            assert engine._facing_threshold == 300.0
-        finally:
-            if old_env is not None:
-                os.environ["EYES_FACING_THRESHOLD_SECONDS"] = old_env
-            else:
-                del os.environ["EYES_FACING_THRESHOLD_SECONDS"]
-
-
 class TestOverlayMessages:
     """NotifierOverlay shows correct arrow and text for each direction."""
 
@@ -493,39 +476,6 @@ class TestPresenceTimeAccumulator:
             engine.tick(PoseState.FACING_SCREEN, dt)
         assert engine.presence_accumulator_seconds == 10.0
         assert engine.eye_rest_due is False
-
-    def test_env_var_eyest_threshold(self) -> None:
-        """EYES_EYEREST_THRESHOLD_SECONDS controls the threshold."""
-        import os
-        from eyes.accumulator import AccumulatorEngine
-
-        old_env = os.environ.get("EYES_EYEREST_THRESHOLD_SECONDS")
-        try:
-            os.environ["EYES_EYEREST_THRESHOLD_SECONDS"] = "60"
-            engine = AccumulatorEngine()
-            assert engine._eyest_threshold == 60.0
-        finally:
-            if old_env is not None:
-                os.environ["EYES_EYEREST_THRESHOLD_SECONDS"] = old_env
-            else:
-                del os.environ["EYES_EYEREST_THRESHOLD_SECONDS"]
-
-    def test_env_var_invalid_falls_back_to_default(self) -> None:
-        """Invalid EYES_EYEREST_THRESHOLD_SECONDS falls back to 900s default."""
-        import os
-        from eyes.accumulator import AccumulatorEngine
-
-        old_env = os.environ.get("EYES_EYEREST_THRESHOLD_SECONDS")
-        try:
-            os.environ["EYES_EYEREST_THRESHOLD_SECONDS"] = "invalid"
-            engine = AccumulatorEngine()
-            assert engine._eyest_threshold == 900.0
-        finally:
-            if old_env is not None:
-                os.environ["EYES_EYEREST_THRESHOLD_SECONDS"] = old_env
-            else:
-                del os.environ["EYES_EYEREST_THRESHOLD_SECONDS"]
-
 
 class TestOverlayEyeRestMessage:
     """NotifierOverlay shows correct message for eye rest prompt."""

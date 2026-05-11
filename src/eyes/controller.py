@@ -310,6 +310,20 @@ class AppController:
             self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="adjust", direction=direction)
             self._overlay.show_correction(correction)
 
+        # S4: good posture encouragement when facing threshold reached
+        if self._accumulator.good_posture_due:
+            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="good_posture")
+            self._overlay.show_good_posture()
+
+        # S5: eye rest reminder when presence threshold reached
+        if self._accumulator.eye_rest_due:
+            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="eye_rest")
+            self._overlay.show_eye_rest()
+
+        # Clear flags once after handling both
+        if self._accumulator.good_posture_due or self._accumulator.eye_rest_due:
+            self._accumulator.acknowledge()
+
     def _check_snooze_expiry(self) -> None:
         """Check if timed snooze has expired and resume if needed."""
         if not self._accumulator.is_snoozed:
