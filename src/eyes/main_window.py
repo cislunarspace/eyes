@@ -6,11 +6,12 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QImage, QPixmap
 from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from .classifier import PoseState
+from .types import WarningLevel, WarningLevelEvent
 
 # Badge colour scheme per acceptance criteria
 _BADGE_COLORS: dict[PoseState, tuple[str, str]] = {
@@ -69,8 +70,17 @@ class MainWindow(QMainWindow):
         self._camera_status_label.setVisible(False)
         layout.addWidget(self._camera_status_label)
 
+        # Warning banner (hidden by default, overlaid at bottom of video area)
+        self._warning_banner = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
+        self._warning_banner.setVisible(False)
+        self._corrected_timer = QTimer(self)
+        self._corrected_timer.setSingleShot(True)
+        self._corrected_timer.setInterval(2000)
+        self._corrected_timer.timeout.connect(self._hide_warning_banner)
+
         layout.addWidget(self._badge_label)
         layout.addWidget(self._video_label, stretch=1)
+        layout.addWidget(self._warning_banner)
         layout.addWidget(self._readout_label)
 
     def _apply_badge_style(self, state: PoseState) -> None:
@@ -123,3 +133,46 @@ class MainWindow(QMainWindow):
         """Emit close_requested signal instead of accepting the event directly."""
         self.close_requested.emit()
         event.ignore()
+
+    def _hide_warning_banner(self) -> None:
+        self._warning_banner.setVisible(False)
+
+    def set_warning_level(self, event: WarningLevelEvent) -> None:
+        level, direction = event.level, event.direction
+
+        if level == WarningLevel.NORMAL:
+            self._corrected_timer.stop()
+            self._warning_banner.setVisible(False)
+            return
+
+        if level == WarningLevel.WARNING:
+            bg = "#FFD700"
+            fg = "#000000"
+            line2 = "← 请向左调整" if direction == "left" else "→ 请向右调整"
+            text = f"请正视屏幕\n{line2}"
+        elif level == WarningLevel.SEVERE:
+            bg = "#FF0000"
+            fg = "#FFFFFF"
+            line2 = "← 请向左调整" if direction == "left" else "→ 请向右调整"
+            text = f"请正视屏幕\n{line2}"
+        elif level == WarningLevel.CORRECTED:
+            bg = "#00AA00"
+            fg = "#FFFFFF"
+            text = "姿势良好 ✓"
+        else:
+            return
+
+        self._warning_banner.setText(text)
+        self._warning_banner.setStyleSheet(
+            f"background-color: {bg}; color: {fg}; "
+            f"font-size: 20px; font-weight: bold; padding: 12px;"
+        )
+        self._warning_banner.setVisible(True)
+
+        self._badge_label.setStyleSheet(
+            f"background-color: {bg}; color: {fg}; "
+            f"font-size: 16px; font-weight: bold; padding: 6px;"
+        )
+
+        if level == WarningLevel.CORRECTED:
+            self._corrected_timer.start()
