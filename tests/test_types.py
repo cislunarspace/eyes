@@ -66,3 +66,46 @@ class TestAppEventKind:
     def test_kinds_are_strings(self) -> None:
         for kind in AppEventKind:
             assert isinstance(kind.value, str)
+
+
+class TestWarningLevel:
+    def test_enum_values(self) -> None:
+        from eyes.types import WarningLevel
+
+        assert WarningLevel.NORMAL.value == "NORMAL"
+        assert WarningLevel.WARNING.value == "WARNING"
+        assert WarningLevel.SEVERE.value == "SEVERE"
+        assert WarningLevel.CORRECTED.value == "CORRECTED"
+
+    def test_enum_members_count(self) -> None:
+        from eyes.types import WarningLevel
+
+        assert len(WarningLevel) == 4
+
+
+class TestWarningLevelChanged:
+    def test_event_kind_exists(self) -> None:
+        assert AppEventKind.WARNING_LEVEL_CHANGED.value == "WARNING_LEVEL_CHANGED"
+
+
+class TestWarningLevelEvent:
+    def test_create_with_direction(self) -> None:
+        from eyes.types import WarningLevel, WarningLevelEvent
+
+        event = WarningLevelEvent(level=WarningLevel.WARNING, direction="left")
+        assert event.level is WarningLevel.WARNING
+        assert event.direction == "left"
+
+    def test_create_without_direction(self) -> None:
+        from eyes.types import WarningLevel, WarningLevelEvent
+
+        event = WarningLevelEvent(level=WarningLevel.NORMAL, direction=None)
+        assert event.level is WarningLevel.NORMAL
+        assert event.direction is None
+
+    def test_is_frozen(self) -> None:
+        from eyes.types import WarningLevel, WarningLevelEvent
+
+        event = WarningLevelEvent(level=WarningLevel.SEVERE, direction="right")
+        with pytest.raises(AttributeError):
+            event.level = WarningLevel.NORMAL  # type: ignore[index]

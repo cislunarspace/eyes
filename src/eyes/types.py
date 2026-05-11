@@ -31,3 +31,17 @@ class AppEventKind(enum.Enum):
     CAMERA_RESUMED = "CAMERA_RESUMED"
     SNOOZE_START = "SNOOZE_START"
     SNOOZE_END = "SNOOZE_END"
+    WARNING_LEVEL_CHANGED = "WARNING_LEVEL_CHANGED"
+
+
+class WarningLevel(enum.Enum):
+    NORMAL = "NORMAL"
+    WARNING = "WARNING"
+    SEVERE = "SEVERE"
+    CORRECTED = "CORRECTED"
+
+
+@dataclass(frozen=True)
+class WarningLevelEvent:
+    level: WarningLevel
+    direction: Optional[str]
