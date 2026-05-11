@@ -1,6 +1,9 @@
 """Eyes — entry point."""
 
+import os
 import sys
+
+os.environ.setdefault("PYSIDE6_SIGNATURE_DISABLED", "1")
 
 from PySide6.QtWidgets import QApplication
 
