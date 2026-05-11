@@ -8,11 +8,13 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from .accumulator import AccumulatorEngine
+from .autostart import AutostartManager
 from .classifier import NeutralPose, PoseState, Thresholds, classify
 from .config_store import ConfigStore
 from .event_log import EventLog
 from .main_window import MainWindow
 from .overlay import NotifierOverlay
+from .settings_dialog import SettingsDialog
 from .tray_controller import TrayController, TrayIconState
 from .types import AppEventKind
 
@@ -61,10 +63,15 @@ class AppController:
         self._tray.settings_requested.connect(self._on_settings_requested)
         self._tray.quit_requested.connect(self._on_quit_requested)
 
+        # Autostart manager
+        self._autostart_manager = AutostartManager()
+
         # Track previous state for STATE_CHANGE events
         self._last_state: PoseState | None = None
         # Track camera availability for CAMERA_UNAVAILABLE/RESUMED events
         self._camera_was_available = False
+        # Reference to open settings dialog (for calibration sampling)
+        self._settings_dialog: SettingsDialog | None = None
 
         # Initialize snooze state from persisted config
         self._check_persisted_snooze()
@@ -122,11 +129,44 @@ class AppController:
         self._event_log.append(AppEventKind.SNOOZE_END)
 
     def _on_settings_requested(self) -> None:
-        """Handle settings request from tray menu (placeholder)."""
+        """Handle settings request from tray menu - show settings dialog."""
         # Show the main window
         self._window.show()
         self._window.raise_()
         self._window.activateWindow()
+
+        # Show settings dialog
+        self._settings_dialog = SettingsDialog(self._config_store, self._window)
+        self._settings_dialog.settings_changed.connect(self._on_settings_changed)
+        self._settings_dialog.calibration_completed.connect(self._on_calibration_completed)
+        self._settings_dialog.exec()
+
+        # Check if camera needs to be switched
+        new_camera_index = self._settings_dialog.get_pending_camera_index()
+        if new_camera_index is not None and new_camera_index != self._window.camera()._index:
+            self._switch_camera(new_camera_index)
+        self._settings_dialog = None
+
+    def _on_settings_changed(self) -> None:
+        """Handle settings changed - reload config and apply autostart."""
+        self._config = self._config_store.load()
+        self._autostart_manager.apply_config(self._config.autostart_enabled)
+
+    def _on_calibration_completed(self, yaw: float, roll: float) -> None:
+        """Handle calibration completed - reload config to get updated neutral pose."""
+        # Log the calibration event
+        self._event_log.append(
+            AppEventKind.STATE_CHANGE,
+            state=f"CALIBRATED: yaw={yaw:+.1f}°, roll={roll:+.1f}°"
+        )
+        self._config = self._config_store.load()
+
+    def _switch_camera(self, index: int) -> None:
+        """Switch to a different camera."""
+        camera = self._window.camera()
+        camera.close()
+        camera._index = index
+        camera.open()
 
     def _on_quit_requested(self) -> None:
         """Handle quit request from tray menu."""
@@ -211,6 +251,9 @@ class AppController:
         frame = camera.read()
         self._window.update_frame(frame)
 
+        current_yaw: float | None = None
+        current_roll: float | None = None
+
         if frame is None or detector is None:
             self._window.set_state(None, None, None)
             current_state = PoseState.NO_FACE
@@ -220,10 +263,14 @@ class AppController:
                 self._window.set_state(None, None, None)
                 current_state = PoseState.NO_FACE
             else:
-                yaw, roll = pose
-                state = classify(yaw, roll, **self._get_classify_kwargs())
-                self._window.set_state(yaw, roll, state)
+                current_yaw, current_roll = pose
+                state = classify(current_yaw, current_roll, **self._get_classify_kwargs())
+                self._window.set_state(current_yaw, current_roll, state)
                 current_state = state
+
+        # Collect calibration samples if settings dialog is open and calibrating
+        if self._settings_dialog is not None and current_yaw is not None and current_roll is not None:
+            self._settings_dialog.add_calibration_sample(current_yaw, current_roll)
 
         # Log state changes
         self._log_state_change(current_state)
