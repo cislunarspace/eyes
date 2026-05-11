@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from eyes.accumulator import AccumulatorEngine
 from eyes.classifier import PoseState
+from eyes.types import WarningLevel
 
 
 class TestAccumulatorFirstPrompt:
@@ -346,7 +347,7 @@ class TestWarningLevel:
         event = engine.warning_event
 
         assert event is not None
-        assert event.level.value == "WARNING"
+        assert event.level is WarningLevel.WARNING
         assert event.direction == "left"
 
     def test_facing_screen_no_warning_event(self) -> None:
@@ -366,7 +367,7 @@ class TestWarningLevel:
         event = engine.warning_event
 
         assert event is not None
-        assert event.level.value == "WARNING"
+        assert event.level is WarningLevel.WARNING
         assert event.direction == "right"
 
     def test_no_escalation_below_threshold(self) -> None:
@@ -399,7 +400,7 @@ class TestWarningLevel:
         engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         event = engine.warning_event
         assert event is not None
-        assert event.level.value == "SEVERE"
+        assert event.level is WarningLevel.SEVERE
         assert event.direction == "left"
 
     def test_facing_screen_after_warning_emits_corrected(self) -> None:
@@ -415,7 +416,7 @@ class TestWarningLevel:
         engine.tick(PoseState.FACING_SCREEN, dt)
         event = engine.warning_event
         assert event is not None
-        assert event.level.value == "CORRECTED"
+        assert event.level is WarningLevel.CORRECTED
         assert event.direction is None
 
     def test_corrected_transitions_to_normal_after_2s(self) -> None:
@@ -439,7 +440,7 @@ class TestWarningLevel:
         engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
         event = engine.warning_event
         assert event is not None
-        assert event.level.value == "WARNING"
+        assert event.level is WarningLevel.WARNING
         assert event.direction == "right"
 
     def test_no_face_resets_warning_to_normal(self) -> None:
@@ -462,7 +463,7 @@ class TestWarningLevel:
         engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         event = engine.warning_event
         assert event is not None
-        assert event.level.value == "WARNING"
+        assert event.level is WarningLevel.WARNING
 
         # Escalation timer should be reset — 9s more should NOT trigger SEVERE
         for _ in range(8):
@@ -479,7 +480,7 @@ class TestWarningLevel:
         for _ in range(9):
             engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         assert engine.warning_event is not None
-        assert engine.warning_event.level.value == "SEVERE"
+        assert engine.warning_event.level is WarningLevel.SEVERE
 
         # NO_FACE resets
         engine.tick(PoseState.NO_FACE, dt)
@@ -487,7 +488,7 @@ class TestWarningLevel:
         # Fresh episode
         engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
         assert engine.warning_event is not None
-        assert engine.warning_event.level.value == "WARNING"
+        assert engine.warning_event.level is WarningLevel.WARNING
         assert engine.warning_event.direction == "right"
 
     def test_new_episode_after_corrected_resets_timer(self) -> None:
@@ -498,12 +499,16 @@ class TestWarningLevel:
         # WARNING → CORRECTED
         engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.warning_event.level.value == "CORRECTED"
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.CORRECTED
 
         # Immediately go off-axis again — new episode, timer resets
         engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
-        assert engine.warning_event.level.value == "WARNING"
-        assert engine.warning_event.direction == "right"
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.WARNING
+        assert event.direction == "right"
 
         # 9 more seconds should NOT trigger SEVERE (timer started at dt=1.0)
         for _ in range(8):
@@ -513,7 +518,93 @@ class TestWarningLevel:
         # 10th tick of continuous off-axis → SEVERE
         engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
         assert engine.warning_event is not None
-        assert engine.warning_event.level.value == "SEVERE"
+        assert engine.warning_event.level is WarningLevel.SEVERE
+
+    def test_direction_change_mid_warning_updates_without_reemitting(self) -> None:
+        """Changing off-axis direction during WARNING updates direction for eventual SEVERE."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.WARNING
+        assert event.direction == "left"
+
+        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+        assert engine.warning_event is None
+
+        for _ in range(7):
+            engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+            assert engine.warning_event is None
+
+        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.SEVERE
+        assert event.direction == "right"
+
+    def test_snooze_freezes_warning_escalation(self) -> None:
+        """While snoozed, warning escalation does not advance or emit events."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert engine.warning_event is not None
+
+        engine.snooze()
+        for _ in range(20):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+            assert engine.warning_event is None
+
+        engine.resume()
+        for _ in range(8):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+            assert engine.warning_event is None
+
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.SEVERE
+
+    def test_off_axis_other_does_not_advance_warning_escalation(self) -> None:
+        """OFF_AXIS_OTHER leaves warning escalation paused until yaw-axis off-axis resumes."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert engine.warning_event is not None
+
+        for _ in range(20):
+            engine.tick(PoseState.OFF_AXIS_OTHER, dt)
+            assert engine.warning_event is None
+
+        for _ in range(8):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+            assert engine.warning_event is None
+
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.SEVERE
+        assert event.direction == "left"
+
+    def test_severe_to_corrected_on_facing_screen(self) -> None:
+        """Returning to FACING_SCREEN from SEVERE (not just WARNING) emits CORRECTED."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        for _ in range(10):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.SEVERE
+
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.CORRECTED
+        assert event.direction is None
 
 
 class TestOverlayMessages:

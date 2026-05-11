@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from eyes.main_window import MainWindow
 from eyes.types import WarningLevel, WarningLevelEvent
 
@@ -76,6 +74,32 @@ class TestWarningBanner:
 
         qtbot.wait(2100)
         assert not window._warning_banner.isVisible()
+
+    def test_warning_right_shows_yellow_banner(self, qtbot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+
+        window.set_warning_level(WarningLevelEvent(level=WarningLevel.WARNING, direction="right"))
+
+        banner = window._warning_banner
+        assert banner.isVisible()
+        assert "#FFD700" in banner.styleSheet()
+        assert "请正视屏幕" in banner.text()
+        assert "→ 请向右调整" in banner.text()
+
+    def test_severe_left_shows_red_banner(self, qtbot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+
+        window.set_warning_level(WarningLevelEvent(level=WarningLevel.SEVERE, direction="left"))
+
+        banner = window._warning_banner
+        assert banner.isVisible()
+        assert "#FF0000" in banner.styleSheet()
+        assert "请正视屏幕" in banner.text()
+        assert "← 请向左调整" in banner.text()
 
 
 class TestBadgeColorSync:
