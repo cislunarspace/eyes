@@ -81,6 +81,8 @@ class ConfigStore:
             "language": config.language,
             "off_axis_streak_threshold_seconds": config.off_axis_streak_threshold_seconds,
             "off_axis_repeat_interval_seconds": config.off_axis_repeat_interval_seconds,
+            "facing_threshold_seconds": config.facing_threshold_seconds,
+            "eyest_threshold_seconds": config.eyest_threshold_seconds,
         }
 
     def _dict_to_config(self, data: dict[str, Any]) -> AppConfig:

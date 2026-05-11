@@ -20,6 +20,8 @@ class AppConfig:
     language: str = "zh-CN"
     off_axis_streak_threshold_seconds: float = 1.0
     off_axis_repeat_interval_seconds: float = 10.0
+    facing_threshold_seconds: float = 300.0
+    eyest_threshold_seconds: float = 900.0
 
 
 class AppEventKind(enum.Enum):

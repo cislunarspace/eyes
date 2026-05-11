@@ -61,6 +61,8 @@ class AppController:
         self._accumulator = AccumulatorEngine(
             off_axis_streak_threshold_seconds=self._config.off_axis_streak_threshold_seconds,
             off_axis_repeat_interval_seconds=self._config.off_axis_repeat_interval_seconds,
+            facing_threshold_seconds=self._config.facing_threshold_seconds,
+            eyest_threshold_seconds=self._config.eyest_threshold_seconds,
         )
 
         # Overlay for correction prompts
@@ -314,33 +316,10 @@ class AppController:
         if self._accumulator.good_posture_due:
             self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="good_posture")
             self._overlay.show_good_posture()
+            self._accumulator.acknowledge()
 
         # S5: eye rest reminder when presence threshold reached
         if self._accumulator.eye_rest_due:
             self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="eye_rest")
             self._overlay.show_eye_rest()
-
-        # Clear flags once after handling both
-        if self._accumulator.good_posture_due or self._accumulator.eye_rest_due:
             self._accumulator.acknowledge()
-
-    def _check_snooze_expiry(self) -> None:
-        """Check if timed snooze has expired and resume if needed."""
-        if not self._accumulator.is_snoozed:
-            return
-        snooze_until = self._config.snooze_until_iso
-        if snooze_until is None or snooze_until == "indefinite":
-            return
-        # Check expiry
-        try:
-            snooze_time = datetime.fromisoformat(snooze_until)
-            if snooze_time.tzinfo is None:
-                snooze_time = snooze_time.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            if now >= snooze_time:
-                self._accumulator.resume()
-                self._tray.set_state(TrayIconState.ACTIVE)
-                self._config_store.update(snooze_until_iso=None)
-                self._event_log.append(AppEventKind.SNOOZE_END)
-        except ValueError:
-            pass
