@@ -4,11 +4,48 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from eyes.controller import AppController
 from eyes.classifier import PoseState
 from eyes.overlay import NotifierOverlay
 from eyes.sense_loop import PromptEvent
 from eyes.types import AppEventKind
+from eyes.main_window import MainWindow
+
+
+class TestMainWindowAsPureView:
+    """Verify MainWindow is a pure view with no hardware resource ownership."""
+
+    def test_main_window_has_no_camera_attribute(self, qtbot) -> None:
+        """MainWindow should not have a _camera attribute (ownership moved to controller)."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert not hasattr(window, "_camera")
+
+    def test_main_window_has_no_detector_attribute(self, qtbot) -> None:
+        """MainWindow should not have a _detector attribute (ownership moved to controller)."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert not hasattr(window, "_detector")
+
+    def test_main_window_has_no_camera_method(self, qtbot) -> None:
+        """MainWindow should not have a camera() method."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert not hasattr(window, "camera")
+
+    def test_main_window_has_no_detector_method(self, qtbot) -> None:
+        """MainWindow should not have a detector() method."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert not hasattr(window, "detector")
+
+    def test_main_window_has_no_init_camera_and_detector_method(self, qtbot) -> None:
+        """MainWindow should not have init_camera_and_detector() method."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert not hasattr(window, "init_camera_and_detector")
 
 
 class TestPromptDispatchBehavior:

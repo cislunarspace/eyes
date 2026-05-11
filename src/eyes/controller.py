@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from .autostart import AutostartManager
+from .camera import CameraSource
 from .classifier import NeutralPose, PoseState, Thresholds
 from .config_store import ConfigStore
+from .detector import HeadPoseDetector
 from .event_log import EventLog
 from .main_window import MainWindow
 from .overlay import NotifierOverlay
@@ -48,7 +51,12 @@ class AppController:
         if camera_index is None:
             camera_index = self._config.camera_index
 
-        self._window = MainWindow(camera_index=camera_index)
+        # Camera and detector (ownership moved from MainWindow)
+        self._camera = CameraSource(index=camera_index)
+        self._detector: Optional[HeadPoseDetector] = None
+
+        # Pure view window
+        self._window = MainWindow()
         self._timer = QTimer()
         self._timer.setInterval(100)  # 10 Hz
 
@@ -59,7 +67,7 @@ class AppController:
 
         # Qt-free sensing loop for detect -> classify -> accumulate -> prompt events.
         self._sense_loop = SenseLoop(
-            self._window.detector(),
+            self._detector,
             **self._get_classify_kwargs(),
             accumulator_config=self._get_accumulator_config(),
         )
@@ -157,7 +165,7 @@ class AppController:
 
         # Check if camera needs to be switched
         new_camera_index = self._settings_dialog.get_pending_camera_index()
-        if new_camera_index is not None and new_camera_index != self._window.camera()._index:
+        if new_camera_index is not None and new_camera_index != self._camera._index:
             self._switch_camera(new_camera_index)
         self._settings_dialog = None
 
@@ -178,11 +186,8 @@ class AppController:
         self._sense_loop.update_classifier(**self._get_classify_kwargs())
 
     def _switch_camera(self, index: int) -> None:
-        """Switch to a different camera."""
-        camera = self._window.camera()
-        camera.close()
-        camera._index = index
-        camera.open()
+        """Switch to a different camera using set_index()."""
+        self._camera.set_index(index)
 
     def _on_quit_requested(self) -> None:
         """Handle quit request from tray menu."""
@@ -199,11 +204,9 @@ class AppController:
     def close(self) -> None:
         """Close window and release resources (for app quit)."""
         self._window.close()
-        camera = self._window.camera()
-        camera.close()
-        detector = self._window.detector()
-        if detector is not None:
-            detector.close()
+        self._camera.close()
+        if self._detector is not None:
+            self._detector.close()
 
     def _on_about_to_quit(self) -> None:
         self._timer.stop()
@@ -264,11 +267,22 @@ class AppController:
             self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="eye_rest")
             self._overlay.show_eye_rest()
 
+    def _init_camera_and_detector(self) -> bool:
+        """Open the camera and build the detector. Returns True on success."""
+        if not self._camera.open():
+            return False
+        try:
+            self._detector = HeadPoseDetector()
+        except RuntimeError as exc:
+            self._event_log.append(AppEventKind.STATE_CHANGE, state=f"MODEL_LOAD_FAILED: {exc}")
+            return False
+        return True
+
     def run(self) -> None:
         """Show the window, open camera + detector, start the tick loop."""
         self._window.show()
 
-        if not self._window.init_camera_and_detector():
+        if not self._init_camera_and_detector():
             # Camera unavailable — still show the window
             self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
             self._camera_was_available = False
@@ -278,6 +292,8 @@ class AppController:
             self._camera_retry_timer.start()
         else:
             self._camera_was_available = True
+            # Update sense loop with detector reference
+            self._sense_loop.detector = self._detector
 
         self._timer.timeout.connect(self._tick)
         self._timer.start()
@@ -286,8 +302,7 @@ class AppController:
 
     def _try_reopen_camera(self) -> None:
         """Attempt to reopen the camera. Called every 5 seconds when unavailable."""
-        camera = self._window.camera()
-        if camera.retry_open():
+        if self._camera.retry_open():
             # Camera is now available
             self._event_log.append(AppEventKind.CAMERA_RESUMED)
             self._camera_was_available = True
@@ -304,11 +319,8 @@ class AppController:
         # Check if timed snooze has expired
         self._check_snooze_expiry()
 
-        camera = self._window.camera()
-        detector = self._window.detector()
-
         # If camera is unavailable, show message if not already shown
-        if not camera.is_available:
+        if not self._camera.is_available:
             self._window.set_state(None, None, None)
             if self._camera_was_available:
                 self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
@@ -320,10 +332,9 @@ class AppController:
                 self._camera_unavailable_message_shown = True
             return
 
-        frame = camera.read()
+        frame = self._camera.read()
         self._window.update_frame(frame)
 
-        self._sense_loop.detector = detector
         events = self._sense_loop.tick(frame, _DT_SECONDS)
         current_yaw = self._sense_loop.current_yaw
         current_roll = self._sense_loop.current_roll

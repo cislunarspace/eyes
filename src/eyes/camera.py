@@ -59,3 +59,9 @@ class CameraSource:
             self._cap.release()
             self._cap = None
         self._available = False
+
+    def set_index(self, index: int) -> bool:
+        """Close current camera and open with new index. Returns True on success."""
+        self.close()
+        self._index = index
+        return self.open()

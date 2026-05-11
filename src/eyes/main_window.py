@@ -10,9 +10,7 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QImage, QPixmap
 from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
 
-from .camera import CameraSource
 from .classifier import PoseState
-from .detector import HeadPoseDetector
 
 # Badge colour scheme per acceptance criteria
 _BADGE_COLORS: dict[PoseState, tuple[str, str]] = {
@@ -34,14 +32,10 @@ class MainWindow(QMainWindow):
     # Signal emitted when user tries to close the window
     close_requested = Signal()
 
-    def __init__(self, camera_index: int = 0) -> None:
+    def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Eyes")
         self.resize(QSize(800, 600))
-
-        # Core components
-        self._camera = CameraSource(index=camera_index)
-        self._detector: Optional[HeadPoseDetector] = None
 
         # UI
         central = QWidget()
@@ -94,17 +88,6 @@ class MainWindow(QMainWindow):
         """Hide the camera unavailable status message."""
         self._camera_status_label.setVisible(False)
 
-    def init_camera_and_detector(self) -> bool:
-        """Open the camera and build the detector. Returns True on success."""
-        if not self._camera.open():
-            return False
-        try:
-            self._detector = HeadPoseDetector()
-        except RuntimeError as exc:
-            self._readout_label.setText(f"模型加载失败: {exc}")
-            return False
-        return True
-
     def set_state(
         self,
         yaw: Optional[float],
@@ -135,12 +118,6 @@ class MainWindow(QMainWindow):
             Qt.TransformationMode.SmoothTransformation,
         )
         self._video_label.setPixmap(QPixmap.fromImage(scaled))
-
-    def camera(self) -> CameraSource:
-        return self._camera
-
-    def detector(self) -> Optional[HeadPoseDetector]:
-        return self._detector
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Emit close_requested signal instead of accepting the event directly."""

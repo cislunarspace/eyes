@@ -155,3 +155,26 @@ class TestCameraSource:
         result = cam.read()
         assert result is None
         assert not cam.is_available
+
+    @patch("cv2.VideoCapture")
+    def test_set_index_closes_current_and_reopens_with_new_index(self, mock_vc_class) -> None:
+        """set_index() should close current camera and reopen with new index."""
+        mock_cap_0 = MagicMock()
+        mock_cap_0.isOpened.return_value = True
+        mock_cap_0.release.return_value = None
+        mock_cap_1 = MagicMock()
+        mock_cap_1.isOpened.return_value = True
+
+        mock_vc_class.side_effect = [mock_cap_0, mock_cap_1]
+
+        cam = CameraSource(index=0)
+        cam.open()
+        assert cam._cap is mock_cap_0
+
+        # Switch to camera index 1
+        cam.set_index(1)
+
+        # Should have released camera 0 and opened camera 1
+        mock_cap_0.release.assert_called_once()
+        assert cam._cap is mock_cap_1
+        assert cam.is_available
