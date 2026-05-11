@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import shutil
 from pathlib import Path
 from typing import Any
@@ -83,17 +84,6 @@ class ConfigStore:
         }
 
     def _dict_to_config(self, data: dict[str, Any]) -> AppConfig:
-        """Convert dict from YAML to AppConfig with defaults for missing keys."""
-        return AppConfig(
-            yaw_threshold=data.get("yaw_threshold", 15.0),
-            roll_threshold=data.get("roll_threshold", 10.0),
-            neutral_yaw=data.get("neutral_yaw", 0.0),
-            neutral_roll=data.get("neutral_roll", 0.0),
-            camera_index=data.get("camera_index", 0),
-            snooze_until_iso=data.get("snooze_until_iso"),
-            sound_enabled=data.get("sound_enabled", False),
-            autostart_enabled=data.get("autostart_enabled", False),
-            language=data.get("language", "zh-CN"),
-            off_axis_streak_threshold_seconds=data.get("off_axis_streak_threshold_seconds", 1.0),
-            off_axis_repeat_interval_seconds=data.get("off_axis_repeat_interval_seconds", 10.0),
-        )
+        """Convert dict from YAML to AppConfig, using AppConfig defaults for missing keys."""
+        defaults = AppConfig()
+        return dataclasses.replace(defaults, **data)

@@ -144,7 +144,7 @@ class TestConfigStore:
         assert config.language == "zh-CN"
 
     def test_empty_yaml_file_loads_defaults(self, tmp_path: Path) -> None:
-        """Empty YAML file (yaml.safe_load returns None) falls back to defaults."""
+        """Empty YAML file (yaml.safe_load returns None) falls back to AppConfig defaults."""
         from eyes.config_store import ConfigStore
 
         config_store = ConfigStore(config_dir=tmp_path)
@@ -154,7 +154,24 @@ class TestConfigStore:
         config_file = tmp_path / "config.yaml"
         config_file.write_text("")
 
-        # Should not raise, should return defaults
+        # Should not raise, should return AppConfig defaults
         config = config_store.load()
-        assert config.yaw_threshold == 15.0
-        assert config.language == "zh-CN"
+        expected = AppConfig()
+        assert config == expected
+
+    def test_partial_yaml_uses_appconfig_defaults(self, tmp_path: Path) -> None:
+        """Partial YAML (missing fields) should use AppConfig defaults for those fields."""
+        from eyes.config_store import ConfigStore
+
+        config_store = ConfigStore(config_dir=tmp_path)
+        config_store.load()
+
+        # Write YAML with only one field
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump({"language": "en-US"}, f)
+
+        # Reload - only language should be overridden, rest from AppConfig defaults
+        config = config_store.load()
+        expected = AppConfig(language="en-US")
+        assert config == expected
