@@ -19,8 +19,8 @@ class TestConfigStore:
         config_store = ConfigStore(config_dir=tmp_path)
         config = config_store.load()
 
-        assert config.yaw_threshold == 15.0
-        assert config.roll_threshold == 10.0
+        assert config.yaw_threshold == 1.0
+        assert config.roll_threshold == 90.0  # Disabled
         assert config.neutral_yaw == 0.0
         assert config.neutral_roll == 0.0
         assert config.camera_index == 0
@@ -36,7 +36,7 @@ class TestConfigStore:
         # Verify file contains correct defaults
         with open(config_file) as f:
             saved = yaml.safe_load(f)
-        assert saved["yaw_threshold"] == 15.0
+        assert saved["yaw_threshold"] == 1.0
         assert saved["language"] == "zh-CN"
 
     def test_roundtrip_serialization(self, tmp_path: Path) -> None:
@@ -140,7 +140,7 @@ class TestConfigStore:
 
         # Should not raise, should return defaults
         config = config_store.load()
-        assert config.yaw_threshold == 15.0
+        assert config.yaw_threshold == 1.0
         assert config.language == "zh-CN"
 
     def test_empty_yaml_file_loads_defaults(self, tmp_path: Path) -> None:

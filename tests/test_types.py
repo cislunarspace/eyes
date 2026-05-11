@@ -10,8 +10,8 @@ from eyes.types import AppConfig, AppEventKind
 class TestAppConfig:
     def test_default_values(self) -> None:
         config = AppConfig()
-        assert config.yaw_threshold == 15.0
-        assert config.roll_threshold == 10.0
+        assert config.yaw_threshold == 1.0
+        assert config.roll_threshold == 90.0  # Disabled
         assert config.neutral_yaw == 0.0
         assert config.neutral_roll == 0.0
         assert config.camera_index == 0
