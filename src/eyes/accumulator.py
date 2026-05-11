@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .classifier import PoseState
+from .types import WarningLevel, WarningLevelEvent
 
 # Default constants (can be overridden via constructor)
 _DEFAULT_OFF_AXIS_STREAK_THRESHOLD = 1.0
@@ -18,6 +19,7 @@ class AccumulatorEngine:
 
     Public interface:
       tick(state, dt) -> Optional[PoseState]  # Returns state that triggered, or None
+      warning_event: Optional[WarningLevelEvent]  # Set when warning level changes
       good_posture_due: bool  # True when facing accumulator reaches threshold (S4)
       eye_rest_due: bool  # True when presence accumulator reaches threshold (S5)
       facing_accumulator_seconds: float  # Current accumulated facing time
@@ -76,6 +78,12 @@ class AccumulatorEngine:
         self._eye_rest_due: bool = False
         # S7: Snooze state
         self._snoozed: bool = False
+        # Warning level state machine
+        self._warning_level: WarningLevel = WarningLevel.NORMAL
+        self._warning_direction: Optional[str] = None
+        self._warning_event: Optional[WarningLevelEvent] = None
+        self._off_axis_continuous_seconds: float = 0.0
+        self._corrected_remaining_seconds: float = 0.0
 
     @property
     def good_posture_due(self) -> bool:
@@ -115,8 +123,15 @@ class AccumulatorEngine:
         """Exit snooze mode: resume accumulating from current values."""
         self._snoozed = False
 
+    @property
+    def warning_event(self) -> Optional[WarningLevelEvent]:
+        """Warning level event from last tick, or None if no change."""
+        return self._warning_event
+
     def tick(self, state: PoseState, dt: float) -> Optional[PoseState]:
         """Process one tick and return if correction is due."""
+        self._warning_event = None
+
         # S7: During snooze, accumulate nothing but do not reset anything
         if self._snoozed:
             return None
@@ -154,5 +169,45 @@ class AccumulatorEngine:
             if self._presence_seconds >= self._eyest_threshold:
                 self._eye_rest_due = True
                 self._presence_seconds = 0.0  # Reset for new cycle
+
+        # Warning level state machine
+        if state in (PoseState.OFF_AXIS_LEFT, PoseState.OFF_AXIS_RIGHT):
+            direction = "left" if state == PoseState.OFF_AXIS_LEFT else "right"
+            if self._warning_level == WarningLevel.NORMAL or self._warning_level == WarningLevel.CORRECTED:
+                self._warning_level = WarningLevel.WARNING
+                self._warning_direction = direction
+                self._off_axis_continuous_seconds = dt
+                self._warning_event = WarningLevelEvent(
+                    level=WarningLevel.WARNING, direction=direction,
+                )
+            else:
+                self._warning_direction = direction
+                self._off_axis_continuous_seconds += dt
+                if (
+                    self._warning_level == WarningLevel.WARNING
+                    and self._off_axis_continuous_seconds >= self._off_axis_repeat_interval
+                ):
+                    self._warning_level = WarningLevel.SEVERE
+                    self._warning_event = WarningLevelEvent(
+                        level=WarningLevel.SEVERE, direction=direction,
+                    )
+        elif state == PoseState.FACING_SCREEN:
+            if self._warning_level in (WarningLevel.WARNING, WarningLevel.SEVERE):
+                self._warning_level = WarningLevel.CORRECTED
+                self._corrected_remaining_seconds = 2.0
+                self._warning_event = WarningLevelEvent(
+                    level=WarningLevel.CORRECTED, direction=None,
+                )
+                self._off_axis_continuous_seconds = 0.0
+            elif self._warning_level == WarningLevel.CORRECTED:
+                self._corrected_remaining_seconds -= dt
+                if self._corrected_remaining_seconds <= 0:
+                    self._warning_level = WarningLevel.NORMAL
+                    self._corrected_remaining_seconds = 0.0
+        elif state == PoseState.NO_FACE:
+            if self._warning_level in (WarningLevel.WARNING, WarningLevel.SEVERE, WarningLevel.CORRECTED):
+                self._warning_level = WarningLevel.NORMAL
+                self._off_axis_continuous_seconds = 0.0
+                self._corrected_remaining_seconds = 0.0
 
         return correction

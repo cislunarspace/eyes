@@ -334,6 +334,188 @@ class TestFacingTimeAccumulator:
         engine.acknowledge()
         assert engine.good_posture_due is False
 
+class TestWarningLevel:
+    """Warning level state machine for posture escalation."""
+
+    def test_off_axis_left_emits_warning(self) -> None:
+        """First OFF_AXIS_LEFT tick emits WARNING with direction='left'."""
+        engine = AccumulatorEngine()
+        dt = 0.1
+
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        event = engine.warning_event
+
+        assert event is not None
+        assert event.level.value == "WARNING"
+        assert event.direction == "left"
+
+    def test_facing_screen_no_warning_event(self) -> None:
+        """FACING_SCREEN tick does not emit a warning event."""
+        engine = AccumulatorEngine()
+        dt = 0.1
+
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.warning_event is None
+
+    def test_off_axis_right_emits_warning(self) -> None:
+        """First OFF_AXIS_RIGHT tick emits WARNING with direction='right'."""
+        engine = AccumulatorEngine()
+        dt = 0.1
+
+        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+        event = engine.warning_event
+
+        assert event is not None
+        assert event.level.value == "WARNING"
+        assert event.direction == "right"
+
+    def test_no_escalation_below_threshold(self) -> None:
+        """Below 10s continuous off-axis, stays WARNING (no SEVERE event)."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        # First tick: emits WARNING, continuous = 1.0
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert engine.warning_event is not None
+
+        # 8 more ticks: continuous goes 2.0 → 9.0, no SEVERE
+        for _ in range(8):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+            assert engine.warning_event is None
+
+    def test_escalation_to_severe_at_threshold(self) -> None:
+        """SEVERE emitted after exactly 10s continuous off-axis."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        # First tick: WARNING
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+
+        # 8 more ticks: continuous = 9.0
+        for _ in range(8):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+
+        # 10th tick: continuous = 10.0 >= threshold → SEVERE
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level.value == "SEVERE"
+        assert event.direction == "left"
+
+    def test_facing_screen_after_warning_emits_corrected(self) -> None:
+        """Returning to FACING_SCREEN after WARNING emits CORRECTED."""
+        engine = AccumulatorEngine()
+        dt = 0.1
+
+        # Get into WARNING state
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert engine.warning_event is not None
+
+        # Return to facing
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level.value == "CORRECTED"
+        assert event.direction is None
+
+    def test_corrected_transitions_to_normal_after_2s(self) -> None:
+        """After CORRECTED, 2 seconds of FACING_SCREEN transitions to NORMAL."""
+        engine = AccumulatorEngine()
+        dt = 1.0
+
+        # WARNING → CORRECTED
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        engine.tick(PoseState.FACING_SCREEN, dt)
+
+        # 1s of FACING_SCREEN in CORRECTED state — still CORRECTED, no event
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.warning_event is None
+
+        # 2nd second — transition to NORMAL, no event emitted (NORMAL is baseline)
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.warning_event is None
+
+        # Verify we're back to NORMAL by triggering a fresh WARNING
+        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level.value == "WARNING"
+        assert event.direction == "right"
+
+    def test_no_face_resets_warning_to_normal(self) -> None:
+        """NO_FACE resets warning level to NORMAL and resets escalation timer."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        # Get into WARNING
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert engine.warning_event is not None
+
+        # Accumulate 5s continuous off-axis
+        for _ in range(5):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+
+        # NO_FACE resets to NORMAL
+        engine.tick(PoseState.NO_FACE, dt)
+
+        # Next off-axis tick should be a fresh episode (timer at 0)
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level.value == "WARNING"
+
+        # Escalation timer should be reset — 9s more should NOT trigger SEVERE
+        for _ in range(8):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+            assert engine.warning_event is None
+
+    def test_no_face_after_severe_resets_to_normal(self) -> None:
+        """NO_FACE after SEVERE also resets to NORMAL."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        # Get into SEVERE
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        for _ in range(9):
+            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert engine.warning_event is not None
+        assert engine.warning_event.level.value == "SEVERE"
+
+        # NO_FACE resets
+        engine.tick(PoseState.NO_FACE, dt)
+
+        # Fresh episode
+        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+        assert engine.warning_event is not None
+        assert engine.warning_event.level.value == "WARNING"
+        assert engine.warning_event.direction == "right"
+
+    def test_new_episode_after_corrected_resets_timer(self) -> None:
+        """Going off-axis after CORRECTED starts a fresh episode with reset timer."""
+        engine = AccumulatorEngine(off_axis_repeat_interval_seconds=10.0)
+        dt = 1.0
+
+        # WARNING → CORRECTED
+        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        engine.tick(PoseState.FACING_SCREEN, dt)
+        assert engine.warning_event.level.value == "CORRECTED"
+
+        # Immediately go off-axis again — new episode, timer resets
+        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+        assert engine.warning_event.level.value == "WARNING"
+        assert engine.warning_event.direction == "right"
+
+        # 9 more seconds should NOT trigger SEVERE (timer started at dt=1.0)
+        for _ in range(8):
+            engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+            assert engine.warning_event is None
+
+        # 10th tick of continuous off-axis → SEVERE
+        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
+        assert engine.warning_event is not None
+        assert engine.warning_event.level.value == "SEVERE"
+
+
 class TestOverlayMessages:
     """NotifierOverlay shows correct arrow and text for each direction."""
 
