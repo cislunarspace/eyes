@@ -7,12 +7,30 @@ from eyes.classifier import PoseState
 
 
 class TestAccumulatorFirstPrompt:
-    """5s first prompt fires after accumulating 5 seconds of off-axis time."""
+    """First prompt fires after accumulating off-axis streak threshold seconds."""
 
-    def test_first_prompt_fires_after_5_seconds(self) -> None:
-        """Holding off-axis for exactly 5 seconds should trigger correction."""
+    def test_first_prompt_fires_after_default_threshold(self) -> None:
+        """Holding off-axis for 1 second (default) should trigger correction."""
         engine = AccumulatorEngine()
         dt = 1.0  # 1 second per tick
+
+        # Accumulate 1 second - should fire (default threshold is 1.0s)
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result == PoseState.OFF_AXIS_LEFT
+
+    def test_first_prompt_does_not_fire_below_threshold(self) -> None:
+        """Below threshold should not trigger correction."""
+        engine = AccumulatorEngine()
+        dt = 0.5  # 0.5 seconds per tick
+
+        # 0.5s is below 1.0s threshold
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result is None
+
+    def test_custom_streak_threshold(self) -> None:
+        """Custom streak threshold changes when first prompt fires."""
+        engine = AccumulatorEngine(off_axis_streak_threshold_seconds=5.0)
+        dt = 1.0
 
         # Accumulate 4 seconds - should NOT fire
         for _ in range(4):
@@ -23,36 +41,54 @@ class TestAccumulatorFirstPrompt:
         result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         assert result == PoseState.OFF_AXIS_LEFT
 
-    def test_first_prompt_does_not_fire_at_4_9_seconds(self) -> None:
-        """Just under 5 seconds should not trigger correction."""
-        engine = AccumulatorEngine()
-        dt = 0.98  # 0.98 * 5 = 4.9 seconds
+    def test_zero_streak_threshold_fires_immediately(self) -> None:
+        """Zero threshold means first off-axis tick triggers immediately."""
+        engine = AccumulatorEngine(off_axis_streak_threshold_seconds=0.0)
+        dt = 0.1
 
-        for _ in range(5):
-            result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
-            assert result is None
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result == PoseState.OFF_AXIS_LEFT
 
 
 class TestAccumulatorRepeatPrompt:
-    """Repeat prompts every 30 seconds after the first."""
+    """Repeat prompts after the repeat interval."""
 
-    def test_repeat_fires_30_seconds_after_first(self) -> None:
-        """After first prompt, repeat fires 30 seconds later (at 35s total)."""
+    def test_repeat_fires_after_interval_with_defaults(self) -> None:
+        """After first prompt, repeat fires after 10s (default repeat interval)."""
         engine = AccumulatorEngine()
         dt = 1.0
 
-        # Accumulate to 5 seconds (first prompt at 5s)
-        for _ in range(4):
-            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
-        first_result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
-        assert first_result == PoseState.OFF_AXIS_LEFT
+        # First prompt at 1s
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result == PoseState.OFF_AXIS_LEFT
 
-        # Accumulate 29 more seconds (total 34s) - should NOT fire yet
+        # Accumulate 9 more seconds (total 10s) - should NOT fire yet
+        for _ in range(9):
+            result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+            assert result is None
+
+        # Accumulate 10th second (total 11s) - should fire repeat
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result == PoseState.OFF_AXIS_LEFT
+
+    def test_custom_repeat_interval(self) -> None:
+        """Custom repeat interval changes when repeat fires."""
+        engine = AccumulatorEngine(
+            off_axis_streak_threshold_seconds=1.0,
+            off_axis_repeat_interval_seconds=30.0,
+        )
+        dt = 1.0
+
+        # First prompt at 1s
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result == PoseState.OFF_AXIS_LEFT
+
+        # Accumulate 29 more seconds - should NOT fire yet
         for _ in range(29):
             result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
             assert result is None
 
-        # Accumulate 30th second (total 35s) - should fire repeat
+        # 30th second after first prompt - should fire repeat
         result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         assert result == PoseState.OFF_AXIS_LEFT
 
@@ -61,11 +97,27 @@ class TestAccumulatorReset:
     """Returning to facing resets the streak."""
 
     def test_facing_screen_resets_streak(self) -> None:
-        """Returning to FACING_SCREEN resets streak, requires fresh 5s for next prompt."""
+        """Returning to FACING_SCREEN resets streak, requires fresh threshold for next prompt."""
         engine = AccumulatorEngine()
         dt = 1.0
 
-        # Accumulate 3 seconds off-axis
+        # No prompt yet
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result == PoseState.OFF_AXIS_LEFT  # fires at 1s
+
+        # Return to facing - should reset
+        engine.tick(PoseState.FACING_SCREEN, dt)
+
+        # Need fresh threshold period
+        result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
+        assert result == PoseState.OFF_AXIS_LEFT  # fires at 1s again
+
+    def test_facing_resets_before_threshold(self) -> None:
+        """Returning to facing before threshold resets streak completely."""
+        engine = AccumulatorEngine(off_axis_streak_threshold_seconds=5.0)
+        dt = 1.0
+
+        # Accumulate 3 seconds off-axis (below 5s threshold)
         for _ in range(3):
             result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
             assert result is None
@@ -73,26 +125,24 @@ class TestAccumulatorReset:
         # Return to facing - should reset
         engine.tick(PoseState.FACING_SCREEN, dt)
 
-        # Accumulate 4 more seconds - should NOT fire (need fresh 5s)
+        # Need fresh 5s again
         for _ in range(4):
             result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
             assert result is None
-
-        # Accumulate 5th second - should fire
         result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         assert result == PoseState.OFF_AXIS_LEFT
 
     def test_multiple_cycles(self) -> None:
         """Multiple off-axis → facing → off-axis cycles work correctly."""
-        engine = AccumulatorEngine()
+        engine = AccumulatorEngine(off_axis_streak_threshold_seconds=5.0)
         dt = 1.0
 
-        # First cycle: 3 seconds
+        # First cycle: 3 seconds (below threshold)
         for _ in range(3):
             engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         engine.tick(PoseState.FACING_SCREEN, dt)
 
-        # Second cycle: 6 seconds total (need fresh 5s)
+        # Second cycle: 5 seconds total (reaches threshold)
         for _ in range(4):
             result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
             assert result is None
@@ -112,7 +162,7 @@ class TestAccumulatorOtherStatesReset:
 
     def test_off_axis_other_resets_streak(self) -> None:
         """OFF_AXIS_OTHER does not trigger L/R prompt and resets streak."""
-        engine = AccumulatorEngine()
+        engine = AccumulatorEngine(off_axis_streak_threshold_seconds=5.0)
         dt = 1.0
 
         # Accumulate 3 seconds off-axis LEFT
@@ -142,7 +192,7 @@ class TestAccumulatorOtherStatesReset:
 
     def test_no_face_resets_streak(self) -> None:
         """NO_FACE resets streak like FACING_SCREEN."""
-        engine = AccumulatorEngine()
+        engine = AccumulatorEngine(off_axis_streak_threshold_seconds=5.0)
         dt = 1.0
 
         # Accumulate 3 seconds off-axis
@@ -533,7 +583,7 @@ class TestAccumulatorSnooze:
 
     def test_snooze_freezes_off_axis_streak(self) -> None:
         """Off-axis streak does not advance while snoozed."""
-        engine = AccumulatorEngine()
+        engine = AccumulatorEngine(off_axis_streak_threshold_seconds=5.0)
         dt = 1.0
 
         # Accumulate 3 seconds off-axis
@@ -547,7 +597,6 @@ class TestAccumulatorSnooze:
         for _ in range(10):
             result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
             assert result is None  # No prompts while snoozed
-        # Streak is frozen - need to verify internal state
 
     def test_resume_continues_from_previous_values(self) -> None:
         """After resume, accumulators continue from where they left off."""
@@ -587,7 +636,7 @@ class TestAccumulatorSnooze:
 
     def test_resume_continues_off_axis_streak(self) -> None:
         """Off-axis streak continues after resume (does not reset)."""
-        engine = AccumulatorEngine()
+        engine = AccumulatorEngine(off_axis_streak_threshold_seconds=5.0)
         dt = 1.0
 
         # Accumulate 3 seconds off-axis

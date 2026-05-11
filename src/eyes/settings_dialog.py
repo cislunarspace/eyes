@@ -8,7 +8,7 @@ import sys
 from typing import Any
 
 import platformdirs
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -24,7 +24,20 @@ from PySide6.QtWidgets import (
 
 from eyes.calibration import PoseSample, compute_median_pose
 from eyes.config_store import ConfigStore
-from eyes.types import AppConfig
+
+# Slider ranges
+_YAW_SLIDER_MIN = 1
+_YAW_SLIDER_MAX = 30
+_YAW_SLIDER_TICK = 5
+_ROLL_SLIDER_MIN = 5
+_ROLL_SLIDER_MAX = 30
+_ROLL_SLIDER_TICK = 5
+_STREAK_SLIDER_MIN = 0
+_STREAK_SLIDER_MAX = 30
+_STREAK_SLIDER_TICK = 5
+_REPEAT_SLIDER_MIN = 10
+_REPEAT_SLIDER_MAX = 120
+_REPEAT_SLIDER_TICK = 10
 
 
 class SettingsDialog(QDialog):
@@ -70,27 +83,57 @@ class SettingsDialog(QDialog):
         # Yaw threshold slider
         yaw_layout = QHBoxLayout()
         self._yaw_slider = QSlider()
-        self._yaw_slider.setOrientation(1)  # Horizontal
-        self._yaw_slider.setMinimum(1)
-        self._yaw_slider.setMaximum(30)
+        self._yaw_slider.setOrientation(Qt.Orientation.Horizontal)
+        self._yaw_slider.setMinimum(_YAW_SLIDER_MIN)
+        self._yaw_slider.setMaximum(_YAW_SLIDER_MAX)
         self._yaw_slider.setValue(int(self._get_value("yaw_threshold", 1.0)))
         self._yaw_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self._yaw_slider.setTickInterval(5)
+        self._yaw_slider.setTickInterval(_YAW_SLIDER_TICK)
         self._yaw_slider.valueChanged.connect(self._on_yaw_changed)
         self._yaw_value_label = QLabel(f"{self._get_value('yaw_threshold', 1.0):.0f}°")
         yaw_layout.addWidget(self._yaw_slider)
         yaw_layout.addWidget(self._yaw_value_label)
         self._form_layout.addRow("偏航阈值", yaw_layout)
 
+        # Off-axis streak threshold slider (首次提示等待时间)
+        streak_layout = QHBoxLayout()
+        self._streak_slider = QSlider()
+        self._streak_slider.setOrientation(Qt.Orientation.Horizontal)
+        self._streak_slider.setMinimum(_STREAK_SLIDER_MIN)
+        self._streak_slider.setMaximum(_STREAK_SLIDER_MAX)
+        self._streak_slider.setValue(int(self._get_value("off_axis_streak_threshold_seconds", 1.0)))
+        self._streak_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._streak_slider.setTickInterval(_STREAK_SLIDER_TICK)
+        self._streak_slider.valueChanged.connect(self._on_streak_threshold_changed)
+        self._streak_value_label = QLabel(f"{self._get_value('off_axis_streak_threshold_seconds', 1.0):.0f}秒")
+        streak_layout.addWidget(self._streak_slider)
+        streak_layout.addWidget(self._streak_value_label)
+        self._form_layout.addRow("首次提示延迟", streak_layout)
+
+        # Off-axis repeat interval slider (重复提示间隔)
+        repeat_layout = QHBoxLayout()
+        self._repeat_slider = QSlider()
+        self._repeat_slider.setOrientation(Qt.Orientation.Horizontal)
+        self._repeat_slider.setMinimum(_REPEAT_SLIDER_MIN)
+        self._repeat_slider.setMaximum(_REPEAT_SLIDER_MAX)
+        self._repeat_slider.setValue(int(self._get_value("off_axis_repeat_interval_seconds", 10.0)))
+        self._repeat_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._repeat_slider.setTickInterval(_REPEAT_SLIDER_TICK)
+        self._repeat_slider.valueChanged.connect(self._on_repeat_interval_changed)
+        self._repeat_value_label = QLabel(f"{self._get_value('off_axis_repeat_interval_seconds', 10.0):.0f}秒")
+        repeat_layout.addWidget(self._repeat_slider)
+        repeat_layout.addWidget(self._repeat_value_label)
+        self._form_layout.addRow("重复提示间隔", repeat_layout)
+
         # Roll threshold slider (disabled: roll no longer affects classification)
         roll_layout = QHBoxLayout()
         self._roll_slider = QSlider()
-        self._roll_slider.setOrientation(1)
-        self._roll_slider.setMinimum(5)
-        self._roll_slider.setMaximum(30)
+        self._roll_slider.setOrientation(Qt.Orientation.Horizontal)
+        self._roll_slider.setMinimum(_ROLL_SLIDER_MIN)
+        self._roll_slider.setMaximum(_ROLL_SLIDER_MAX)
         self._roll_slider.setValue(int(self._get_value("roll_threshold", 90.0)))
         self._roll_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self._roll_slider.setTickInterval(5)
+        self._roll_slider.setTickInterval(_ROLL_SLIDER_TICK)
         self._roll_slider.valueChanged.connect(self._on_roll_changed)
         self._roll_value_label = QLabel(f"{self._get_value('roll_threshold', 90.0):.0f}° (已禁用)")
         roll_layout.addWidget(self._roll_slider)
@@ -176,6 +219,14 @@ class SettingsDialog(QDialog):
     def _on_yaw_changed(self, value: int) -> None:
         self._yaw_value_label.setText(f"{value}°")
         self._set_value("yaw_threshold", float(value))
+
+    def _on_streak_threshold_changed(self, value: int) -> None:
+        self._streak_value_label.setText(f"{value}秒")
+        self._set_value("off_axis_streak_threshold_seconds", float(value))
+
+    def _on_repeat_interval_changed(self, value: int) -> None:
+        self._repeat_value_label.setText(f"{value}秒")
+        self._set_value("off_axis_repeat_interval_seconds", float(value))
 
     def _on_roll_changed(self, value: int) -> None:
         self._roll_value_label.setText(f"{value}°")

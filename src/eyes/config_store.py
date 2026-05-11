@@ -78,6 +78,8 @@ class ConfigStore:
             "sound_enabled": config.sound_enabled,
             "autostart_enabled": config.autostart_enabled,
             "language": config.language,
+            "off_axis_streak_threshold_seconds": config.off_axis_streak_threshold_seconds,
+            "off_axis_repeat_interval_seconds": config.off_axis_repeat_interval_seconds,
         }
 
     def _dict_to_config(self, data: dict[str, Any]) -> AppConfig:
@@ -92,4 +94,6 @@ class ConfigStore:
             sound_enabled=data.get("sound_enabled", False),
             autostart_enabled=data.get("autostart_enabled", False),
             language=data.get("language", "zh-CN"),
+            off_axis_streak_threshold_seconds=data.get("off_axis_streak_threshold_seconds", 1.0),
+            off_axis_repeat_interval_seconds=data.get("off_axis_repeat_interval_seconds", 10.0),
         )

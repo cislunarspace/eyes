@@ -19,6 +19,8 @@ class TestAppConfig:
         assert config.sound_enabled is False
         assert config.autostart_enabled is False
         assert config.language == "zh-CN"
+        assert config.off_axis_streak_threshold_seconds == 1.0
+        assert config.off_axis_repeat_interval_seconds == 10.0
 
     def test_custom_values(self) -> None:
         config = AppConfig(
@@ -31,6 +33,8 @@ class TestAppConfig:
             sound_enabled=True,
             autostart_enabled=True,
             language="en-US",
+            off_axis_streak_threshold_seconds=3.0,
+            off_axis_repeat_interval_seconds=20.0,
         )
         assert config.yaw_threshold == 20.0
         assert config.roll_threshold == 15.0
@@ -41,6 +45,8 @@ class TestAppConfig:
         assert config.sound_enabled is True
         assert config.autostart_enabled is True
         assert config.language == "en-US"
+        assert config.off_axis_streak_threshold_seconds == 3.0
+        assert config.off_axis_repeat_interval_seconds == 20.0
 
     def test_is_frozen(self) -> None:
         config = AppConfig()

@@ -18,6 +18,8 @@ class AppConfig:
     sound_enabled: bool = False
     autostart_enabled: bool = False
     language: str = "zh-CN"
+    off_axis_streak_threshold_seconds: float = 1.0
+    off_axis_repeat_interval_seconds: float = 10.0
 
 
 class AppEventKind(enum.Enum):

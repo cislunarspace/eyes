@@ -58,7 +58,10 @@ class AppController:
         self._camera_retry_timer.timeout.connect(self._try_reopen_camera)
 
         # Accumulator engine for off-axis streak tracking
-        self._accumulator = AccumulatorEngine()
+        self._accumulator = AccumulatorEngine(
+            off_axis_streak_threshold_seconds=self._config.off_axis_streak_threshold_seconds,
+            off_axis_repeat_interval_seconds=self._config.off_axis_repeat_interval_seconds,
+        )
 
         # Overlay for correction prompts
         self._overlay = NotifierOverlay()

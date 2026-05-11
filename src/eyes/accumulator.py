@@ -7,9 +7,9 @@ from typing import Optional
 
 from .classifier import PoseState
 
-# Constants
-_FIRST_PROMPT_SECONDS = 5.0
-_REPEAT_INTERVAL_SECONDS = 30.0
+# Default constants (can be overridden via constructor)
+_DEFAULT_OFF_AXIS_STREAK_THRESHOLD = 1.0
+_DEFAULT_OFF_AXIS_REPEAT_INTERVAL = 10.0
 _FACING_THRESHOLD_SECONDS = 300.0
 _EYEREST_THRESHOLD_SECONDS = 900.0
 
@@ -34,6 +34,17 @@ def _get_eyest_threshold() -> float:
         except ValueError:
             return _EYEREST_THRESHOLD_SECONDS
     return _EYEREST_THRESHOLD_SECONDS
+
+
+def _get_env_float(name: str, default: float) -> float:
+    """Read a float from an env var, falling back to default on missing/invalid."""
+    env_val = os.environ.get(name)
+    if env_val is None:
+        return default
+    try:
+        return float(env_val)
+    except ValueError:
+        return default
 
 
 class AccumulatorEngine:
@@ -65,9 +76,21 @@ class AccumulatorEngine:
         *,
         facing_threshold_seconds: float | None = None,
         eyest_threshold_seconds: float | None = None,
+        off_axis_streak_threshold_seconds: float | None = None,
+        off_axis_repeat_interval_seconds: float | None = None,
     ) -> None:
-        self._facing_threshold = facing_threshold_seconds or _get_facing_threshold()
-        self._eyest_threshold = eyest_threshold_seconds or _get_eyest_threshold()
+        self._facing_threshold = facing_threshold_seconds if facing_threshold_seconds is not None else _get_facing_threshold()
+        self._eyest_threshold = eyest_threshold_seconds if eyest_threshold_seconds is not None else _get_eyest_threshold()
+        self._off_axis_streak_threshold = (
+            off_axis_streak_threshold_seconds
+            if off_axis_streak_threshold_seconds is not None
+            else _get_env_float("EYES_OFF_AXIS_STREAK_THRESHOLD_SECONDS", _DEFAULT_OFF_AXIS_STREAK_THRESHOLD)
+        )
+        self._off_axis_repeat_interval = (
+            off_axis_repeat_interval_seconds
+            if off_axis_repeat_interval_seconds is not None
+            else _get_env_float("EYES_OFF_AXIS_REPEAT_INTERVAL_SECONDS", _DEFAULT_OFF_AXIS_REPEAT_INTERVAL)
+        )
         self._off_axis_streak: float = 0.0
         self._repeat_due_at: Optional[float] = None
         self._last_emit_at: Optional[float] = None
@@ -124,19 +147,21 @@ class AccumulatorEngine:
         if self._snoozed:
             return None
 
+        correction: Optional[PoseState] = None
+
         if state in (PoseState.OFF_AXIS_LEFT, PoseState.OFF_AXIS_RIGHT):
             self._off_axis_streak += dt
 
-            if self._off_axis_streak >= _FIRST_PROMPT_SECONDS:
+            if self._off_axis_streak >= self._off_axis_streak_threshold:
                 if self._last_emit_at is None:
                     # First prompt
                     self._last_emit_at = self._off_axis_streak
-                    self._repeat_due_at = self._off_axis_streak + _REPEAT_INTERVAL_SECONDS
-                    return state
+                    self._repeat_due_at = self._off_axis_streak + self._off_axis_repeat_interval
+                    correction = state
                 elif self._repeat_due_at is not None and self._off_axis_streak >= self._repeat_due_at:
                     # Repeat prompt
-                    self._repeat_due_at = self._off_axis_streak + _REPEAT_INTERVAL_SECONDS
-                    return state
+                    self._repeat_due_at = self._off_axis_streak + self._off_axis_repeat_interval
+                    correction = state
         else:
             self._off_axis_streak = 0.0
             self._repeat_due_at = None
@@ -156,4 +181,4 @@ class AccumulatorEngine:
                 self._eye_rest_due = True
                 self._presence_seconds = 0.0  # Reset for new cycle
 
-        return None
+        return correction
