@@ -8,13 +8,15 @@ from typing import Optional, Protocol
 import numpy as np
 
 from .accumulator import AccumulatorEngine
-from .classifier import NeutralPose, PoseState, Thresholds, classify
+from .classifier import HeadPose, NeutralPose, PoseState, Thresholds, classify
+from .facing_time_accumulator import FacingTimeAccumulator
+from .presence_time_accumulator import PresenceTimeAccumulator
 from .types import WarningLevelEvent
 
 
 class HeadPoseDetectorLike(Protocol):
-    def detect(self, frame: np.ndarray) -> tuple[float, float] | None:
-        """Return (yaw, roll) when a face is detected, otherwise None."""
+    def detect(self, frame: np.ndarray) -> Optional[HeadPose]:
+        """Return a ``HeadPose`` when a face is detected, otherwise ``None``."""
 
 
 @dataclass(frozen=True)
@@ -26,10 +28,21 @@ class AccumulatorConfig:
 
 
 @dataclass(frozen=True)
-class PromptEvent:
-    kind: str
-    direction: Optional[PoseState] = None
-    warning_level_event: Optional[WarningLevelEvent] = None
+class CorrectionEvent:
+    direction: PoseState
+
+
+@dataclass(frozen=True)
+class GoodPostureEvent:
+    pass
+
+
+@dataclass(frozen=True)
+class EyeRestEvent:
+    pass
+
+
+SenseEvent = CorrectionEvent | GoodPostureEvent | EyeRestEvent | WarningLevelEvent
 
 
 class SenseLoop:
@@ -48,48 +61,51 @@ class SenseLoop:
         self.accumulator = AccumulatorEngine(
             off_axis_streak_threshold_seconds=accumulator_config.off_axis_streak_threshold_seconds,
             off_axis_repeat_interval_seconds=accumulator_config.off_axis_repeat_interval_seconds,
-            facing_threshold_seconds=accumulator_config.facing_threshold_seconds,
-            eyest_threshold_seconds=accumulator_config.eyest_threshold_seconds,
         )
-        self.current_yaw: float | None = None
-        self.current_roll: float | None = None
+        self.facing_time_accumulator = FacingTimeAccumulator(
+            threshold_seconds=accumulator_config.facing_threshold_seconds,
+        )
+        self.presence_time_accumulator = PresenceTimeAccumulator(
+            threshold_seconds=accumulator_config.eyest_threshold_seconds,
+        )
+        self.accumulator.register_snooze_target(self.facing_time_accumulator)
+        self.accumulator.register_snooze_target(self.presence_time_accumulator)
+        self.current_pose: Optional[HeadPose] = None
         self.current_state: PoseState = PoseState.NO_FACE
+
+    @property
+    def current_yaw(self) -> float | None:
+        return self.current_pose.yaw if self.current_pose is not None else None
+
+    @property
+    def current_roll(self) -> float | None:
+        return self.current_pose.roll if self.current_pose is not None else None
 
     def update_classifier(self, neutral: NeutralPose, thresholds: Thresholds) -> None:
         self.neutral = neutral
         self.thresholds = thresholds
 
-    def tick(self, frame: np.ndarray | None, dt: float) -> list[PromptEvent]:
+    def tick(self, frame: np.ndarray | None, dt: float) -> list[SenseEvent]:
         if frame is None or self.detector is None:
-            self.current_yaw = None
-            self.current_roll = None
+            self.current_pose = None
             self.current_state = PoseState.NO_FACE
         else:
-            pose = self.detector.detect(frame)
-            if pose is None:
-                self.current_yaw = None
-                self.current_roll = None
-                self.current_state = PoseState.NO_FACE
-            else:
-                self.current_yaw, self.current_roll = pose
-                self.current_state = classify(
-                    self.current_yaw,
-                    self.current_roll,
-                    neutral=self.neutral,
-                    thresholds=self.thresholds,
-                )
+            self.current_pose = self.detector.detect(frame)
+            self.current_state = classify(
+                self.current_pose,
+                neutral=self.neutral,
+                thresholds=self.thresholds,
+            )
 
-        events: list[PromptEvent] = []
+        events: list[SenseEvent] = []
         correction = self.accumulator.tick(self.current_state, dt)
         if correction is not None:
-            events.append(PromptEvent(kind="correction", direction=correction))
+            events.append(CorrectionEvent(direction=correction))
         warning = self.accumulator.warning_event
         if warning is not None:
-            events.append(PromptEvent(kind="warning_level", warning_level_event=warning))
-        if self.accumulator.good_posture_due:
-            events.append(PromptEvent(kind="good_posture"))
-        if self.accumulator.eye_rest_due:
-            events.append(PromptEvent(kind="eye_rest"))
-        if self.accumulator.good_posture_due or self.accumulator.eye_rest_due:
-            self.accumulator.acknowledge()
+            events.append(warning)
+        if self.facing_time_accumulator.tick(self.current_state, dt):
+            events.append(GoodPostureEvent())
+        if self.presence_time_accumulator.tick(self.current_state, dt):
+            events.append(EyeRestEvent())
         return events

@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import platformdirs
 import pytest
 
 
@@ -223,21 +224,16 @@ def test_linux_autostart_desktop_entry_content():
 # Test 8: Config directory uses XDG conventions
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="platformdirs Linux paths are host-platform specific"
+)
 def test_config_store_uses_platformdirs():
     """ConfigStore should use platformdirs for XDG compliance on Linux."""
     from eyes.config_store import ConfigStore
 
-    # Create a temporary config store without override
-    with patch.object(sys, "platform", "linux", create=False):
-        store = ConfigStore()
-        # On Linux, this should resolve to ~/.config/eyes/
-        # We can't test the actual path without a real home directory,
-        # but we can verify platformdirs is being used
-        path_str = str(store._config_dir)
-        # platformdirs.user_config_dir("eyes") should give us ~/.config/eyes on Linux
-        assert "eyes" in path_str.lower(), (
-            f"Config dir should contain 'eyes', got: {path_str}"
-        )
+    store = ConfigStore()
+
+    assert store._config_dir == Path(platformdirs.user_config_dir("eyes"))
 
 
 def test_config_store_config_dir_uses_dot_config_eyes(tmp_path: Path):
