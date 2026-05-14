@@ -9,6 +9,31 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class AppConfig:
+    """Application-wide configuration persisted to disk.
+
+    Attributes:
+        yaw_threshold: Yaw angle (degrees) beyond which the user is
+            considered off-axis.
+        roll_threshold: Roll angle threshold — currently disabled (set
+            to 90°) so roll does not affect classification.
+        neutral_yaw: Calibration baseline for yaw.
+        neutral_roll: Calibration baseline for roll.
+        camera_index: System camera device index.
+        snooze_until_iso: ISO-8601 timestamp until which alerts are
+            silenced, or ``None`` when not snoozed.
+        sound_enabled: Whether audible alerts are enabled.
+        autostart_enabled: Whether the app launches on system startup.
+        language: UI locale string (e.g. ``"zh-CN"``).
+        off_axis_streak_threshold_seconds: How long the user must be
+            continuously off-axis before the streak accumulator fires.
+        off_axis_repeat_interval_seconds: Minimum interval between
+            consecutive off-axis alerts.
+        facing_threshold_seconds: Continuous screen-facing time that
+            triggers a posture reminder.
+        eyest_threshold_seconds: Cumulative screen-facing time (within
+            a sliding window) that triggers an eyestrain reminder.
+    """
+
     yaw_threshold: float = 1.0
     roll_threshold: float = 90.0  # Disabled: roll no longer affects classification
     neutral_yaw: float = 0.0
@@ -43,5 +68,15 @@ class WarningLevel(enum.Enum):
 
 @dataclass(frozen=True)
 class WarningLevelEvent:
+    """A warning-level transition emitted by the accumulator engine.
+
+    Attributes:
+        level: Current warning severity.
+        direction: Head direction that triggered the warning —
+            ``"left"`` or ``"right"`` when the user is off-axis,
+            ``None`` when facing the screen or the level is
+            ``NORMAL``/``CORRECTED``.
+    """
+
     level: WarningLevel
     direction: Optional[str]
