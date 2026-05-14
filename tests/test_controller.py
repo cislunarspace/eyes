@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -17,7 +17,8 @@ from eyes.sense_loop import (
     GoodPostureEvent,
     SenseLoop,
 )
-from eyes.types import AppEventKind, WarningLevel, WarningLevelEvent
+from eyes.types import AppEventKind, TrayIconState, WarningLevel, WarningLevelEvent
+from eyes.vision_input import FrameReady, VisionUnavailable
 
 
 class TestShowWindowSignal:
@@ -196,58 +197,87 @@ class _FixedPoseDetector:
 
 
 class TestCameraRecovery:
-    """Verify camera retry only resumes when sensing can run."""
+    """Verify _tick() routes VisionInput results to event log, tray, and window."""
 
-    def test_retry_reopen_assigns_detector_before_resuming(self) -> None:
+    def _make_controller(self) -> AppController:
         controller = object.__new__(AppController)
-        detector = object()
-        camera = MagicMock()
-        camera.retry_open.return_value = True
-        controller._camera = camera
-        controller._detector = None
+        controller._vision = MagicMock()
         controller._sense_loop = MagicMock()
+        controller._sense_loop.tick.return_value = []
+        controller._sense_loop.current_yaw = None
+        controller._sense_loop.current_roll = None
+        controller._sense_loop.current_state = PoseState.NO_FACE
         controller._event_log = MagicMock()
-        controller._camera_retry_timer = MagicMock()
         controller._tray = MagicMock()
         controller._window = MagicMock()
-        controller._camera_was_available = False
-        controller._camera_unavailable_message_shown = True
+        controller._overlay = MagicMock()
+        controller._snooze_manager = MagicMock()
         controller._accumulator = MagicMock(is_snoozed=False)
+        controller._settings_dialog = None
+        controller._last_state = None
+        return controller
 
-        with patch("eyes.controller.HeadPoseDetector", return_value=detector):
-            controller._try_reopen_camera()
+    def test_tick_resumes_from_unavailable_logs_camera_resumed_and_clears_window(self) -> None:
+        controller = self._make_controller()
+        detector = object()
+        controller._vision.detector = detector
+        frame = np.zeros((1, 1, 3), dtype=np.uint8)
+        controller._vision.tick.return_value = FrameReady(frame=frame, just_resumed=True)
 
-        assert controller._detector is detector
+        controller._tick()
+
         assert controller._sense_loop.detector is detector
-        camera.close.assert_not_called()
-        controller._event_log.append.assert_called_once_with(AppEventKind.CAMERA_RESUMED)
+        controller._event_log.append.assert_any_call(AppEventKind.CAMERA_RESUMED)
+        controller._tray.set_state.assert_called_with(TrayIconState.ACTIVE)
         controller._window.clear_camera_unavailable_message.assert_called_once()
 
-    def test_retry_reopen_closes_camera_when_detector_fails(self) -> None:
-        controller = object.__new__(AppController)
-        camera = MagicMock()
-        camera.retry_open.return_value = True
-        controller._camera = camera
-        controller._detector = None
-        controller._sense_loop = MagicMock()
-        controller._event_log = MagicMock()
-        controller._camera_retry_timer = MagicMock()
-        controller._tray = MagicMock()
-        controller._window = MagicMock()
-        controller._camera_was_available = False
-        controller._camera_unavailable_message_shown = True
-        controller._accumulator = MagicMock(is_snoozed=False)
+    def test_tick_resumes_with_paused_tray_when_snoozed(self) -> None:
+        controller = self._make_controller()
+        controller._accumulator.is_snoozed = True
+        controller._vision.detector = object()
+        frame = np.zeros((1, 1, 3), dtype=np.uint8)
+        controller._vision.tick.return_value = FrameReady(frame=frame, just_resumed=True)
 
-        with patch("eyes.controller.HeadPoseDetector", side_effect=RuntimeError("boom")):
-            controller._try_reopen_camera()
+        controller._tick()
 
-        camera.close.assert_called_once()
-        assert controller._sense_loop.detector is None
-        controller._event_log.append.assert_called_once_with(
-            AppEventKind.STATE_CHANGE,
-            state="MODEL_LOAD_FAILED: boom",
+        controller._tray.set_state.assert_called_with(TrayIconState.PAUSED)
+
+    def test_tick_just_failed_logs_camera_unavailable_and_shows_message(self) -> None:
+        controller = self._make_controller()
+        controller._vision.tick.return_value = VisionUnavailable(just_failed=True)
+
+        controller._tick()
+
+        controller._event_log.append.assert_called_once_with(AppEventKind.CAMERA_UNAVAILABLE)
+        controller._tray.set_state.assert_called_with(TrayIconState.UNAVAILABLE)
+        controller._window.show_camera_unavailable_message.assert_called_once()
+
+    def test_tick_steady_unavailable_does_not_log_or_re_show(self) -> None:
+        controller = self._make_controller()
+        controller._vision.tick.return_value = VisionUnavailable(just_failed=False)
+
+        controller._tick()
+
+        controller._event_log.append.assert_not_called()
+        controller._window.show_camera_unavailable_message.assert_not_called()
+        controller._tray.set_state.assert_not_called()
+        # UI is reset to a neutral state
+        controller._window.set_warning_level.assert_called_once()
+        controller._window.set_state.assert_called_once_with(None, None, None)
+
+    def test_tick_detector_error_logs_state_change_with_model_load_failed(self) -> None:
+        controller = self._make_controller()
+        controller._vision.tick.return_value = VisionUnavailable(
+            just_failed=False, detector_error="MODEL_LOAD_FAILED: boom"
         )
-        controller._window.clear_camera_unavailable_message.assert_not_called()
+
+        controller._tick()
+
+        controller._event_log.append.assert_called_once_with(
+            AppEventKind.STATE_CHANGE, state="MODEL_LOAD_FAILED: boom"
+        )
+        controller._tray.set_state.assert_called_with(TrayIconState.UNAVAILABLE)
+        controller._window.show_camera_unavailable_message.assert_called_once()
 
 
 class TestWarningBannerEndToEnd:
@@ -308,8 +338,8 @@ class TestWarningBannerEndToEnd:
         assert window._warning_banner.isVisible()
 
         window.set_warning_level(WarningLevelEvent(level=WarningLevel.WARNING, direction="left"))
-        window._hide_warning_banner()
+
+        qtbot.wait(2100)
 
         assert window._warning_banner.isVisible()
-        assert window._active_warning_level == WarningLevel.WARNING
         assert "#FFD700" in window._warning_banner.styleSheet()

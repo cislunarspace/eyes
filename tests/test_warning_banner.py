@@ -1,4 +1,9 @@
-"""Tests for MainWindow warning banner behavior and i18n (issues #26, #58)."""
+"""Smoke tests for MainWindow rendering of DisplayPlan + i18n (issues #26, #58, #62).
+
+Pure DisplayPlan logic is covered in test_display_plan.py. These tests
+verify only that MainWindow correctly pushes DisplayPlan values into
+QLabel widgets and that language switching refreshes rendered text.
+"""
 
 from __future__ import annotations
 
@@ -8,138 +13,90 @@ from eyes.main_window import MainWindow
 from eyes.types import WarningLevel, WarningLevelEvent
 
 
-class TestWarningBanner:
-    """Verify banner visibility, color, and text per warning level."""
+class TestRendererSmoke:
+    """Verify DisplayPlan values reach the badge and banner widgets."""
 
-    def test_warning_left_shows_yellow_banner(self, qtbot) -> None:
+    def test_warning_event_makes_banner_visible(self, qtbot) -> None:
         window = MainWindow()
         qtbot.addWidget(window)
         window.show()
 
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.WARNING, direction="left"))
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.WARNING, direction="left")
+        )
 
-        banner = window._warning_banner
-        assert banner.isVisible()
-        assert "#FFD700" in banner.styleSheet()  # yellow background
-        assert "请正视屏幕" in banner.text()
-        assert "← 请向左调整" in banner.text()
+        assert window._warning_banner.isVisible()
+        assert window._warning_banner.text()
+        assert window._badge_label.styleSheet()
 
-    def test_severe_right_shows_red_banner(self, qtbot) -> None:
+    def test_normal_event_hides_banner(self, qtbot) -> None:
         window = MainWindow()
         qtbot.addWidget(window)
         window.show()
 
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.SEVERE, direction="right"))
-
-        banner = window._warning_banner
-        assert banner.isVisible()
-        assert "#FF0000" in banner.styleSheet()
-        assert "请正视屏幕" in banner.text()
-        assert "→ 请向右调整" in banner.text()
-
-    def test_corrected_shows_green_banner_then_hides(self, qtbot) -> None:
-        window = MainWindow()
-        qtbot.addWidget(window)
-        window.show()
-
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None))
-
-        banner = window._warning_banner
-        assert banner.isVisible()
-        assert "#00AA00" in banner.styleSheet()
-        assert "姿势良好 ✓" in banner.text()
-
-        qtbot.wait(2100)
-        assert not banner.isVisible()
-
-    def test_normal_hides_banner_immediately(self, qtbot) -> None:
-        window = MainWindow()
-        qtbot.addWidget(window)
-        window.show()
-
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.WARNING, direction="left"))
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.WARNING, direction="left")
+        )
         assert window._warning_banner.isVisible()
 
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.NORMAL, direction=None))
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.NORMAL, direction=None)
+        )
         assert not window._warning_banner.isVisible()
 
-    def test_normal_cancels_corrected_timer(self, qtbot) -> None:
+    def test_corrected_banner_auto_dismisses(self, qtbot) -> None:
         window = MainWindow()
         qtbot.addWidget(window)
         window.show()
 
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None))
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None)
+        )
         assert window._warning_banner.isVisible()
 
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.NORMAL, direction=None))
+        qtbot.wait(2100)
+        assert not window._warning_banner.isVisible()
+
+    def test_normal_after_corrected_cancels_pending_dismiss(self, qtbot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None)
+        )
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.NORMAL, direction=None)
+        )
         assert not window._warning_banner.isVisible()
 
         qtbot.wait(2100)
         assert not window._warning_banner.isVisible()
 
-    def test_warning_right_shows_yellow_banner(self, qtbot) -> None:
+    def test_pose_updates_during_corrected_do_not_postpone_dismiss(self, qtbot) -> None:
+        """Regression: pose ticks while CORRECTED must not restart the auto-dismiss timer.
+
+        Real usage drives `set_state` at ~30 fps. If `_render` restarted the
+        timer every call, the CORRECTED banner would never dismiss.
+        """
         window = MainWindow()
         qtbot.addWidget(window)
         window.show()
 
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.WARNING, direction="right"))
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None)
+        )
 
-        banner = window._warning_banner
-        assert banner.isVisible()
-        assert "#FFD700" in banner.styleSheet()
-        assert "请正视屏幕" in banner.text()
-        assert "→ 请向右调整" in banner.text()
+        for _ in range(20):
+            window.set_state(0.0, 0.0, PoseState.FACING_SCREEN)
+            qtbot.wait(50)
+        qtbot.wait(1200)
 
-    def test_severe_left_shows_red_banner(self, qtbot) -> None:
-        window = MainWindow()
-        qtbot.addWidget(window)
-        window.show()
-
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.SEVERE, direction="left"))
-
-        banner = window._warning_banner
-        assert banner.isVisible()
-        assert "#FF0000" in banner.styleSheet()
-        assert "请正视屏幕" in banner.text()
-        assert "← 请向左调整" in banner.text()
-
-
-class TestBadgeColorSync:
-    """Verify pose state badge color changes with warning level."""
-
-    def test_warning_sets_badge_yellow(self, qtbot) -> None:
-        window = MainWindow()
-        qtbot.addWidget(window)
-        window.show()
-
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.WARNING, direction="left"))
-
-        badge_style = window._badge_label.styleSheet()
-        assert "#FFD700" in badge_style
-
-    def test_severe_sets_badge_red(self, qtbot) -> None:
-        window = MainWindow()
-        qtbot.addWidget(window)
-        window.show()
-
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.SEVERE, direction="right"))
-
-        badge_style = window._badge_label.styleSheet()
-        assert "#FF0000" in badge_style
-
-    def test_corrected_sets_badge_green(self, qtbot) -> None:
-        window = MainWindow()
-        qtbot.addWidget(window)
-        window.show()
-
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None))
-
-        badge_style = window._badge_label.styleSheet()
-        assert "#00AA00" in badge_style
+        assert not window._warning_banner.isVisible()
 
 
 class TestMainWindowI18n:
-    """Verify main window badge, readout, banner, and camera status use t()."""
+    """Verify badge, readout, banner, and camera status all flow through t()."""
 
     def teardown_method(self) -> None:
         set_language("zh-CN")
@@ -212,7 +169,9 @@ class TestMainWindowI18n:
         window = MainWindow()
         qtbot.addWidget(window)
         window.show()
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.WARNING, direction="left"))
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.WARNING, direction="left")
+        )
         assert "Please Face the Screen" in window._warning_banner.text()
         assert "← Adjust Left" in window._warning_banner.text()
 
@@ -221,7 +180,9 @@ class TestMainWindowI18n:
         window = MainWindow()
         qtbot.addWidget(window)
         window.show()
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None))
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None)
+        )
         assert "Good Posture ✓" in window._warning_banner.text()
 
     def test_refresh_language_updates_badge(self, qtbot) -> None:
@@ -256,10 +217,11 @@ class TestMainWindowI18n:
         window = MainWindow()
         qtbot.addWidget(window)
         window.show()
-        window.set_warning_level(WarningLevelEvent(level=WarningLevel.WARNING, direction="left"))
+        window.set_warning_level(
+            WarningLevelEvent(level=WarningLevel.WARNING, direction="left")
+        )
         assert "请正视屏幕" in window._warning_banner.text()
 
         set_language("en")
         window.refresh_language()
-        # Banner text should be updated to English
         assert "Please Face the Screen" in window._warning_banner.text()
