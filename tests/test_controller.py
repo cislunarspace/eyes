@@ -134,6 +134,45 @@ class TestPromptDispatchBehavior:
             AppEventKind.PROMPT_FIRED, prompt="adjust", direction="RIGHT"
         )
 
+    def test_corrected_event_calls_overlay_show_corrected(self) -> None:
+        controller = object.__new__(AppController)
+        overlay = MagicMock(spec=NotifierOverlay)
+        event_log = MagicMock()
+        window = MagicMock(spec=MainWindow)
+        controller._overlay = overlay
+        controller._event_log = event_log
+        controller._window = window
+
+        controller._dispatch_prompt_event(
+            WarningLevelEvent(level=WarningLevel.CORRECTED, direction=None)
+        )
+
+        overlay.show_corrected.assert_called_once()
+        overlay.show_correction.assert_not_called()
+        window.set_warning_level.assert_called_once()
+        event_log.append.assert_called_once_with(
+            AppEventKind.WARNING_LEVEL_CHANGED, level="CORRECTED", direction=None
+        )
+
+    def test_normal_event_hides_overlay(self) -> None:
+        controller = object.__new__(AppController)
+        overlay = MagicMock(spec=NotifierOverlay)
+        event_log = MagicMock()
+        window = MagicMock(spec=MainWindow)
+        controller._overlay = overlay
+        controller._event_log = event_log
+        controller._window = window
+
+        controller._dispatch_prompt_event(
+            WarningLevelEvent(level=WarningLevel.NORMAL, direction=None)
+        )
+
+        overlay.hide.assert_called_once()
+        window.set_warning_level.assert_called_once()
+        event_log.append.assert_called_once_with(
+            AppEventKind.WARNING_LEVEL_CHANGED, level="NORMAL", direction=None
+        )
+
 
 class _FixedPoseDetector:
     def __init__(self, pose: HeadPose | None) -> None:

@@ -17,9 +17,11 @@ _MESSAGES: dict[PoseState, tuple[str, str]] = {
 _EVENT_MESSAGES: dict[str, tuple[str, str]] = {
     "GOOD_POSTURE": ("✓", "当前姿势良好"),
     "EYE_REST": ("👀", "请眺望远方"),
+    "CORRECTED": ("✓", "姿势良好"),
 }
 
 _AUTO_DISMISS_MS = 4000
+_CORRECTED_DISMISS_MS = 1500
 
 
 class NotifierOverlay(QWidget):
@@ -93,8 +95,6 @@ class NotifierOverlay(QWidget):
         self.raise_()
         self.activateWindow()
 
-        self._dismiss_timer.start(_AUTO_DISMISS_MS)
-
     def show_good_posture(self) -> None:
         """Show good posture encouragement."""
         arrow, text = _EVENT_MESSAGES["GOOD_POSTURE"]
@@ -120,6 +120,19 @@ class NotifierOverlay(QWidget):
         self.activateWindow()
 
         self._dismiss_timer.start(_AUTO_DISMISS_MS)
+
+    def show_corrected(self) -> None:
+        """Show posture corrected feedback, auto-dismisses after 1.5 seconds."""
+        arrow, text = _EVENT_MESSAGES["CORRECTED"]
+        self._arrow_label.setText(arrow)
+        self._text_label.setText(text)
+
+        self._move_to_active_screen()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+        self._dismiss_timer.start(_CORRECTED_DISMISS_MS)
 
     def hide(self) -> None:
         """Hide the overlay and stop the dismiss timer."""

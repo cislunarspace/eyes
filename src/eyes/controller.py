@@ -13,6 +13,7 @@ from .classifier import NeutralPose, PoseState, Thresholds
 from .config_store import ConfigStore
 from .detector import HeadPoseDetector
 from .event_log import EventLog
+from .icon_factory import create_eye_icon
 from .main_window import MainWindow
 from .overlay import NotifierOverlay
 from .sense_loop import (
@@ -25,8 +26,8 @@ from .sense_loop import (
 )
 from .settings_dialog import SettingsDialog
 from .snooze_manager import SnoozeManager
-from .tray_controller import TrayController, TrayIconState
-from .types import AppEventKind, WarningLevel, WarningLevelEvent
+from .tray_controller import TrayController
+from .types import AppEventKind, TrayIconState, WarningLevel, WarningLevelEvent
 
 # Tick interval: 100 ms = 0.1 seconds
 _DT_SECONDS = 0.1
@@ -228,6 +229,10 @@ class AppController:
             case WarningLevelEvent():
                 self._event_log.append(AppEventKind.WARNING_LEVEL_CHANGED, level=event.level.value, direction=event.direction)
                 self._window.set_warning_level(event)
+                if event.level == WarningLevel.CORRECTED:
+                    self._overlay.show_corrected()
+                elif event.level == WarningLevel.NORMAL:
+                    self._overlay.hide()
 
     def _ensure_detector(self) -> bool:
         """Lazily create the HeadPoseDetector if not yet initialized.
@@ -257,7 +262,9 @@ class AppController:
 
     def run(self) -> None:
         """Show the window, open camera + detector, start the tick loop."""
+        self._window.setWindowIcon(create_eye_icon(TrayIconState.ACTIVE))
         self._window.show()
+        self._tray.show()
 
         if not self._init_camera_and_detector():
             # Camera unavailable — still show the window
