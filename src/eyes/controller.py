@@ -81,7 +81,7 @@ class AppController:
             **self._get_classify_kwargs(),
             accumulator_config=self._get_accumulator_config(),
         )
-        self._accumulator = self._sense_loop.accumulator
+        self._accumulator = self._sense_loop.engine
 
         # Overlay for correction prompts
         self._overlay = NotifierOverlay()

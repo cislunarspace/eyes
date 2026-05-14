@@ -29,7 +29,7 @@ class TrayLike(Protocol):
 class SnoozeManager:
     """Manages snooze lifecycle: persistence, expiry checking, and component coordination.
 
-    Coordinates AccumulatorEngine (freeze/unfreeze) and TrayController (icon state)
+    Coordinates PostureTickEngine (freeze/unfreeze) and TrayController (icon state)
     based on persisted snooze timestamps in ConfigStore.
 
     Public interface:
