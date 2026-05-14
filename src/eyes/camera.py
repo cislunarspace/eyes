@@ -24,6 +24,11 @@ class CameraSource:
     def is_available(self) -> bool:
         return self._available
 
+    @property
+    def index(self) -> int:
+        """Current device index."""
+        return self._index
+
     def open(self) -> bool:
         """Open the camera. Returns True on success."""
         self.close()

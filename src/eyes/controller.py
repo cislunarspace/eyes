@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
+import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
@@ -29,11 +28,12 @@ from .settings_dialog import SettingsDialog
 from .snooze_manager import SnoozeManager
 from .tray_controller import TrayController
 from .types import AppEventKind, TrayIconState, WarningLevel, WarningLevelEvent
+from .vision_input import FrameReady, VisionInput, VisionUnavailable
 
 # Tick interval: 100 ms = 0.1 seconds
 _DT_SECONDS = 0.1
-# Camera retry interval: 5 seconds
-_CAMERA_RETRY_INTERVAL_MS = 5000
+# Camera retry interval: 50 ticks = 5 seconds at 10 Hz
+_CAMERA_RETRY_INTERVAL_TICKS = 50
 
 
 class AppController:
@@ -61,23 +61,21 @@ class AppController:
         if camera_index is None:
             camera_index = self._config.camera_index
 
-        # Camera and detector (ownership moved from MainWindow)
-        self._camera = CameraSource(index=camera_index)
-        self._detector: Optional[HeadPoseDetector] = None
+        # Vision input (camera + detector lifecycle)
+        self._vision = VisionInput(
+            camera=CameraSource(index=camera_index),
+            detector_factory=HeadPoseDetector,
+            retry_interval_ticks=_CAMERA_RETRY_INTERVAL_TICKS,
+        )
 
         # Pure view window
         self._window = MainWindow()
         self._timer = QTimer()
         self._timer.setInterval(100)  # 10 Hz
 
-        # Camera retry timer: every 5 seconds when camera is unavailable
-        self._camera_retry_timer = QTimer()
-        self._camera_retry_timer.setInterval(_CAMERA_RETRY_INTERVAL_MS)
-        self._camera_retry_timer.timeout.connect(self._try_reopen_camera)
-
         # Qt-free sensing loop for detect -> classify -> accumulate -> prompt events.
         self._sense_loop = SenseLoop(
-            self._detector,
+            None,
             **self._get_classify_kwargs(),
             accumulator_config=self._get_accumulator_config(),
         )
@@ -107,12 +105,8 @@ class AppController:
 
         # Track previous state for STATE_CHANGE events
         self._last_state: PoseState | None = None
-        # Track camera availability for CAMERA_UNAVAILABLE/RESUMED events
-        self._camera_was_available = False
         # Reference to open settings dialog (for calibration sampling)
         self._settings_dialog: SettingsDialog | None = None
-        # Track if we've shown the unavailable message this session
-        self._camera_unavailable_message_shown = False
 
         # Initialize snooze state from persisted config
         self._snooze_manager.restore_persisted_state()
@@ -151,8 +145,8 @@ class AppController:
 
         # Check if camera needs to be switched
         new_camera_index = self._settings_dialog.get_pending_camera_index()
-        if new_camera_index is not None and new_camera_index != self._camera._index:
-            self._switch_camera(new_camera_index)
+        if new_camera_index is not None:
+            self._vision.set_camera_index(new_camera_index)
         self._settings_dialog = None
 
     def _on_settings_changed(self) -> None:
@@ -175,10 +169,6 @@ class AppController:
         self._config = self._config_store.load()
         self._sense_loop.update_classifier(**self._get_classify_kwargs())
 
-    def _switch_camera(self, index: int) -> None:
-        """Switch to a different camera using set_index()."""
-        self._camera.set_index(index)
-
     def _on_quit_requested(self) -> None:
         """Handle quit request from tray menu."""
         # Log if we were snoozed
@@ -194,14 +184,11 @@ class AppController:
     def close(self) -> None:
         """Close window and release resources (for app quit)."""
         self._window.close()
-        self._camera.close()
-        if self._detector is not None:
-            self._detector.close()
+        self._vision.close()
 
     def _on_about_to_quit(self) -> None:
         """Stop all timers and close the window before the application exits."""
         self._timer.stop()
-        self._camera_retry_timer.stop()
         self._window.close()
 
     def _get_classify_kwargs(self) -> dict:
@@ -247,93 +234,63 @@ class AppController:
                 elif event.level == WarningLevel.NORMAL:
                     self._overlay.hide()
 
-    def _ensure_detector(self) -> bool:
-        """Lazily create the HeadPoseDetector if not yet initialized.
-
-        Returns False (and logs the error) if model loading fails.
-        """
-        if self._detector is not None:
-            self._sense_loop.detector = self._detector
-            return True
-        try:
-            self._detector = HeadPoseDetector()
-        except RuntimeError as exc:
-            self._event_log.append(AppEventKind.STATE_CHANGE, state=f"MODEL_LOAD_FAILED: {exc}")
-            self._sense_loop.detector = None
-            return False
-        self._sense_loop.detector = self._detector
-        return True
-
-    def _init_camera_and_detector(self) -> bool:
-        """Open the camera and build the detector. Returns True on success."""
-        if not self._camera.open():
-            return False
-        if not self._ensure_detector():
-            self._camera.close()
-            return False
-        return True
-
     def run(self) -> None:
         """Show the window, open camera + detector, start the tick loop."""
         self._window.setWindowIcon(create_eye_icon(TrayIconState.ACTIVE))
         self._window.show()
         self._tray.show()
 
-        if not self._init_camera_and_detector():
-            # Camera unavailable — still show the window
-            self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
-            self._camera_was_available = False
-            self._camera_unavailable_message_shown = True
-            self._tray.set_state(TrayIconState.UNAVAILABLE)
-            self._window.show_camera_unavailable_message()
-            self._camera_retry_timer.start()
+        result = self._vision.start()
+        if result is not None:
+            self._on_vision_unavailable(result)
         else:
-            self._camera_was_available = True
+            self._sense_loop.detector = self._vision.detector
 
         self._timer.timeout.connect(self._tick)
         self._timer.start()
 
         self._app.exec()
 
-    def _try_reopen_camera(self) -> None:
-        """Attempt to reopen the camera. Called every 5 seconds when unavailable."""
-        if not self._camera.retry_open():
-            return
-        if not self._ensure_detector():
-            self._camera.close()
-            return
-
-        # Camera is now available
+    def _on_vision_resumed(self) -> None:
+        """Camera transitioned from unavailable to available."""
         self._event_log.append(AppEventKind.CAMERA_RESUMED)
-        self._camera_was_available = True
-        self._camera_unavailable_message_shown = False
-        self._camera_retry_timer.stop()
-        # Restore to active/paused state
         self._tray.set_state(
             TrayIconState.ACTIVE if not self._accumulator.is_snoozed else TrayIconState.PAUSED
         )
         self._window.clear_camera_unavailable_message()
+
+    def _on_vision_unavailable(self, result: VisionUnavailable) -> None:
+        """Camera transitioned from available to unavailable, or initial open failed."""
+        if result.detector_error is not None:
+            self._event_log.append(AppEventKind.STATE_CHANGE, state=result.detector_error)
+        else:
+            self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
+        self._tray.set_state(TrayIconState.UNAVAILABLE)
+        self._window.show_camera_unavailable_message()
 
     def _tick(self) -> None:
         """One 10 Hz tick: read, detect, classify, accumulate, update UI."""
         # Check if timed snooze has expired
         self._snooze_manager.check_expiry()
 
-        # If camera is unavailable, show message if not already shown
-        if not self._camera.is_available:
-            self._window.set_warning_level(WarningLevelEvent(level=WarningLevel.NORMAL, direction=None))
-            self._window.set_state(None, None, None)
-            if self._camera_was_available:
-                self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
-                self._camera_was_available = False
-                self._tray.set_state(TrayIconState.UNAVAILABLE)
-                self._camera_retry_timer.start()
-            if not self._camera_unavailable_message_shown:
-                self._window.show_camera_unavailable_message()
-                self._camera_unavailable_message_shown = True
-            return
+        match self._vision.tick():
+            case FrameReady(frame=frame, just_resumed=just_resumed):
+                if just_resumed:
+                    self._sense_loop.detector = self._vision.detector
+                    self._on_vision_resumed()
+                self._handle_frame(frame)
+            case VisionUnavailable() as unavailable:
+                self._handle_unavailable(unavailable)
 
-        frame = self._camera.read()
+    def _handle_unavailable(self, result: VisionUnavailable) -> None:
+        """Reset the UI to its unavailable state and emit transition events."""
+        self._window.set_warning_level(WarningLevelEvent(level=WarningLevel.NORMAL, direction=None))
+        self._window.set_state(None, None, None)
+        if result.just_failed or result.detector_error is not None:
+            self._on_vision_unavailable(result)
+
+    def _handle_frame(self, frame: np.ndarray) -> None:
+        """Run detect/classify/accumulate against a captured frame and update UI."""
         self._window.update_frame(frame)
 
         events = self._sense_loop.tick(frame, _DT_SECONDS)
