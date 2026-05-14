@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Any, Protocol
+from typing import Any, Protocol, assert_never
 
+from .snooze_evaluation import (
+    Active,
+    Expired,
+    Indefinite,
+    Inactive,
+    Malformed,
+    evaluate_snooze,
+)
 from .types import TrayIconState
 
 
@@ -75,44 +83,37 @@ class SnoozeManager:
 
     def check_expiry(self) -> None:
         """Check if timed snooze has expired; if so, resume and clear."""
-        snooze_until = self._config_store.load().snooze_until_iso
-        if snooze_until is None or snooze_until == "indefinite":
-            return
-
-        try:
-            snooze_time = datetime.fromisoformat(snooze_until)
-            if snooze_time.tzinfo is None:
-                snooze_time = snooze_time.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            if now >= snooze_time:
+        state = evaluate_snooze(
+            self._config_store.load().snooze_until_iso,
+            datetime.now(timezone.utc),
+        )
+        match state:
+            case Inactive() | Indefinite() | Active():
+                return
+            case Expired():
                 self._accumulator.resume()
                 self._tray.set_state(TrayIconState.ACTIVE)
                 self._config_store.update(snooze_until_iso=None)
                 if self._on_snooze_end is not None:
                     self._on_snooze_end()
-        except ValueError:
-            self._config_store.update(snooze_until_iso=None)
+            case Malformed():
+                self._config_store.update(snooze_until_iso=None)
+            case _:
+                assert_never(state)
 
     def restore_persisted_state(self) -> None:
         """On startup, restore snooze state from previous session."""
-        snooze_until = self._config_store.load().snooze_until_iso
-        if snooze_until is None:
-            return
-
-        if snooze_until == "indefinite":
-            self._accumulator.snooze()
-            self._tray.set_state(TrayIconState.PAUSED)
-            return
-
-        try:
-            snooze_time = datetime.fromisoformat(snooze_until)
-            if snooze_time.tzinfo is None:
-                snooze_time = snooze_time.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            if now >= snooze_time:
-                self._config_store.update(snooze_until_iso=None)
-            else:
+        state = evaluate_snooze(
+            self._config_store.load().snooze_until_iso,
+            datetime.now(timezone.utc),
+        )
+        match state:
+            case Inactive():
+                return
+            case Indefinite() | Active():
                 self._accumulator.snooze()
                 self._tray.set_state(TrayIconState.PAUSED)
-        except ValueError:
-            self._config_store.update(snooze_until_iso=None)
+            case Expired() | Malformed():
+                self._config_store.update(snooze_until_iso=None)
+            case _:
+                assert_never(state)
