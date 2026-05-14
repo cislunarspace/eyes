@@ -19,7 +19,7 @@ class TestAppConfig:
         assert config.sound_enabled is False
         assert config.autostart_enabled is False
         assert config.language == "zh-CN"
-        assert config.off_axis_streak_threshold_seconds == 1.0
+        assert config.off_axis_streak_threshold_seconds == 0.3
         assert config.off_axis_repeat_interval_seconds == 10.0
 
     def test_custom_values(self) -> None:

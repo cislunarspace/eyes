@@ -7,7 +7,7 @@ from typing import Optional, Protocol
 from .classifier import PoseState
 from .types import WarningLevel, WarningLevelEvent
 
-_DEFAULT_OFF_AXIS_STREAK_THRESHOLD = 1.0
+_DEFAULT_OFF_AXIS_STREAK_THRESHOLD = 0.3
 _DEFAULT_OFF_AXIS_REPEAT_INTERVAL = 10.0
 
 

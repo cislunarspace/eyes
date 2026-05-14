@@ -11,20 +11,20 @@ class TestAccumulatorFirstPrompt:
     """First prompt fires after accumulating off-axis streak threshold seconds."""
 
     def test_first_prompt_fires_after_default_threshold(self) -> None:
-        """Holding off-axis for 1 second (default) should trigger correction."""
+        """Holding off-axis for 0.3 seconds (default) should trigger correction."""
         engine = AccumulatorEngine()
-        dt = 1.0  # 1 second per tick
+        dt = 0.3
 
-        # Accumulate 1 second - should fire (default threshold is 1.0s)
+        # 0.3s meets the default threshold exactly
         result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         assert result == PoseState.OFF_AXIS_LEFT
 
     def test_first_prompt_does_not_fire_below_threshold(self) -> None:
         """Below threshold should not trigger correction."""
         engine = AccumulatorEngine()
-        dt = 0.5  # 0.5 seconds per tick
+        dt = 0.2
 
-        # 0.5s is below 1.0s threshold
+        # 0.2s is below 0.3s default threshold
         result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
         assert result is None
 
