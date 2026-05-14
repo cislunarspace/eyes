@@ -36,6 +36,7 @@ class NotifierOverlay(QWidget):
         self.setWindowFlag(Qt.WindowStaysOnTopHint)
         self.setWindowFlag(Qt.FramelessWindowHint)
         self.setWindowFlag(Qt.Tool)
+        self.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self._setup_ui()
@@ -93,7 +94,6 @@ class NotifierOverlay(QWidget):
         self._move_to_active_screen()
         self.show()
         self.raise_()
-        self.activateWindow()
 
     def show_good_posture(self) -> None:
         """Show good posture encouragement."""
@@ -104,7 +104,6 @@ class NotifierOverlay(QWidget):
         self._move_to_active_screen()
         self.show()
         self.raise_()
-        self.activateWindow()
 
         self._dismiss_timer.start(_AUTO_DISMISS_MS)
 
@@ -117,7 +116,6 @@ class NotifierOverlay(QWidget):
         self._move_to_active_screen()
         self.show()
         self.raise_()
-        self.activateWindow()
 
         self._dismiss_timer.start(_AUTO_DISMISS_MS)
 
@@ -130,7 +128,6 @@ class NotifierOverlay(QWidget):
         self._move_to_active_screen()
         self.show()
         self.raise_()
-        self.activateWindow()
 
         self._dismiss_timer.start(_CORRECTED_DISMISS_MS)
 

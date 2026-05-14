@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from eyes.classifier import PoseState
@@ -79,6 +80,16 @@ class TestCorrectionDismissBehavior:
         qtbot.wait(4200)
 
         assert not overlay.isVisible()
+
+
+class TestOverlayNoFocus:
+    """Verify overlay never accepts keyboard focus (issue #49)."""
+
+    def test_has_window_does_not_accept_focus_flag(self, qtbot) -> None:
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+
+        assert overlay.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus
 
 
 class TestOverlayPositioning:
