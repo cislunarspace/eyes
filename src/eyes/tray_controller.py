@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from .icon_factory import create_eye_icon
@@ -41,6 +41,7 @@ class TrayController(QSystemTrayIcon):
         self._set_icon()
         self.setToolTip(self._TOOLTIP_TEXT[self._state])
         self.activated.connect(self._on_activated)
+        QGuiApplication.styleHints().colorSchemeChanged.connect(self._set_icon)
 
     def _create_menu(self) -> None:
         """Build the tray context menu."""
@@ -87,9 +88,12 @@ class TrayController(QSystemTrayIcon):
         quit_action.triggered.connect(self.quit_requested.emit)
         self._menu.addAction(quit_action)
 
-    def _set_icon(self) -> None:
-        """Set the tray icon based on current state."""
-        self.setIcon(create_eye_icon(self._state))
+    def _set_icon(self, scheme: Qt.ColorScheme = Qt.ColorScheme.Unknown) -> None:
+        """Set the tray icon based on current state and system color scheme."""
+        if scheme == Qt.ColorScheme.Unknown:
+            scheme = QGuiApplication.styleHints().colorScheme()
+        dark_mode = scheme == Qt.ColorScheme.Dark
+        self.setIcon(create_eye_icon(self._state, dark_mode=dark_mode))
 
     @property
     def state(self) -> TrayIconState:

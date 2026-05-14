@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QSystemTrayIcon
 
 from eyes.tray_controller import TrayController
@@ -90,6 +92,56 @@ class TestExistingMenuUnaffected:
         quit_action = next(a for a in tray._menu.actions() if a.text() == "Quit")
         with qtbot.waitSignal(tray.quit_requested, timeout=1000):
             quit_action.trigger()
+
+
+class TestColorSchemeIntegration:
+    """Verify TrayController responds to system color scheme changes (issue #48)."""
+
+    def _style_hints(self):
+        from PySide6.QtGui import QGuiApplication
+
+        return QGuiApplication.styleHints()
+
+    def _pixel_color_at_center(self, icon, size=48):
+        pm = icon.pixmap(size)
+        dpr = pm.devicePixelRatio()
+        cx = int(pm.width() / dpr / 2 * dpr)
+        cy = int(pm.height() / dpr / 2 * dpr)
+        img = pm.toImage()
+        return QColor(img.pixelColor(cx, cy))
+
+    def test_dark_mode_icon_after_scheme_change(self, qtbot) -> None:
+        tray = TrayController()
+        hints = self._style_hints()
+        hints.colorSchemeChanged.emit(Qt.ColorScheme.Dark)
+        color = self._pixel_color_at_center(tray.icon())
+        assert color == QColor("#FFFFFF")
+
+    def test_light_mode_icon_after_scheme_change(self, qtbot) -> None:
+        tray = TrayController()
+        hints = self._style_hints()
+        hints.colorSchemeChanged.emit(Qt.ColorScheme.Light)
+        color = self._pixel_color_at_center(tray.icon())
+        assert color == QColor("#222222")
+
+    def test_icon_updates_on_each_scheme_toggle(self, qtbot) -> None:
+        tray = TrayController()
+        hints = self._style_hints()
+        hints.colorSchemeChanged.emit(Qt.ColorScheme.Dark)
+        assert self._pixel_color_at_center(tray.icon()) == QColor("#FFFFFF")
+        hints.colorSchemeChanged.emit(Qt.ColorScheme.Light)
+        assert self._pixel_color_at_center(tray.icon()) == QColor("#222222")
+        hints.colorSchemeChanged.emit(Qt.ColorScheme.Dark)
+        assert self._pixel_color_at_center(tray.icon()) == QColor("#FFFFFF")
+
+    def test_existing_menu_unaffected_by_scheme_change(self, qtbot) -> None:
+        tray = TrayController()
+        hints = self._style_hints()
+        hints.colorSchemeChanged.emit(Qt.ColorScheme.Dark)
+        texts = [a.text() for a in tray._menu.actions() if not a.isSeparator()]
+        assert "Pause 30 minutes" in texts
+        assert "Resume" in texts
+        assert "Quit" in texts
 
 
 class TestDynamicTooltip:
