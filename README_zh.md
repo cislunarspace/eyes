@@ -1,6 +1,20 @@
-# Eyes 护眼助手
+<div align="center">
 
-一款桌面应用，用摄像头实时监测你的头部姿态，在你偏离屏幕方向时提醒你调整，或定时提示你让眼睛休息一下。
+# 👁️ Eyes 护眼助手
+
+**智能坐姿与护眼桌面伴侣**
+
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
+[![MediaPipe](https://img.shields.io/badge/Pose-MediaPipe-FF6F00?logo=google&logoColor=white)](https://ai.google.dev/edge/mediapipe)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/ouyangjiahong/eyes)
+
+*一款桌面应用，用摄像头实时监测你的头部姿态 —— 提醒你坐正、让眼睛休息。*
+
+[English](README.md) · [中文文档](#功能特点)
+
+</div>
 
 ---
 
@@ -8,47 +22,59 @@
 
 - **实时头部姿态检测** - 调用 MediaPipe FaceLandmarker，利用摄像头捕捉画面
 - **偏航角和翻滚角追踪** - 偏航角（左右转头）和翻滚角（头部倾斜）实时显示
-- **姿态状态分类** - 分为：正对屏幕、偏左、偏右、其他偏离、无检测到人脸
+- **姿态状态分类** - 正对屏幕、偏左、偏右、其他偏离、无检测到人脸
 - **中立姿态校准** - 保持放松的正对屏幕姿势 5 秒，即可设为个人基准
 - **阈值可调节** - 通过设置界面调整偏航角和翻滚角的容忍范围
 - **系统托盘** - 关闭窗口后最小化到托盘，后台运行
 - **暂停功能** - 通过托盘菜单暂停提醒 30 分钟、1 小时或手动恢复
-- **定时姿态表扬** - 累计正对屏幕时长达到 300 秒时，提示"良好"给予正向反馈
-- **眺望远方提醒** - 累计检测到人脸时长达到 900 秒时，提示让眼睛休息
+- **定时姿态表扬** - 累计正对屏幕 5 分钟时，提示"良好"给予正向反馈
+- **眺望远方提醒** - 累计检测到人脸 15 分钟时，提示让眼睛休息
 - **防抖提醒机制** - 偏离屏幕 5 秒后首次提醒，之后每 30 秒重复提醒
-- **设置界面** - 图形化配置阈值、校准、摄像头选择、提示音、开机自启
-- **持久化配置** - 设置保存到 `~/.config/eyes/config.yaml`
+- **设置界面** - 图形化配置阈值、校准、摄像头、提示音、开机自启
 - **摄像头自动重试** - 摄像头被占用时每 5 秒自动重试
 - **开机自启** - 可选开机自动启动
-- **PySide6 图形界面** - 实时摄像头预览、彩色状态徽章、角度数值显示
-
----
 
 ## 系统要求
 
-- **操作系统**：Windows、macOS 或 Linux
-- **Python**：3.12 或更高版本
-- **摄像头**：任意可被 OpenCV 访问的摄像头（默认为摄像头索引 0）
-- **依赖库**：MediaPipe、OpenCV、PySide6（随安装自动安装）
+| 要求 | 说明 |
+| ---- | ---- |
+| **操作系统** | Windows、macOS 或 Linux |
+| **Python** | 3.12 或更高版本 |
+| **摄像头** | 任意可被 OpenCV 访问的摄像头（默认索引 0） |
 
 ---
 
-## 安装
+## 快速开始
 
-### 从 PyPI 安装
-
-```bash
-pip install eyes
-```
-
-MediaPipe 模型会在首次运行时自动下载。
-
-### 从源码安装
+### 使用 uv 安装（推荐）
 
 ```bash
 git clone https://github.com/ouyangjiahong/eyes.git
 cd eyes
-pip install .
+uv sync          # 创建虚拟环境并安装依赖
+uv run python main.py
+```
+
+### 使用 pip 安装
+
+```bash
+git clone https://github.com/ouyangjiahong/eyes.git
+cd eyes
+python -m venv .venv
+
+# 激活虚拟环境
+source .venv/bin/activate  # Linux / macOS
+.venv\Scripts\activate     # Windows
+
+pip install -e .
+python main.py
+```
+
+### 指定摄像头
+
+```bash
+python main.py        # 默认摄像头（索引 0）
+python main.py 1      # 使用第二个摄像头
 ```
 
 ### 开发模式安装
@@ -56,18 +82,13 @@ pip install .
 ```bash
 git clone https://github.com/ouyangjiahong/eyes.git
 cd eyes
-pip install -e ".[dev]"
+uv sync --extra dev   # 或: pip install -e ".[dev]"
+uv run python main.py
 ```
 
 ---
 
 ## 使用方法
-
-```bash
-python main.py
-python main.py 0          # 显式指定默认摄像头
-python main.py 1          # 使用第二个摄像头
-```
 
 启动后，窗口会显示：
 
@@ -81,9 +102,9 @@ python main.py 1          # 使用第二个摄像头
 
 | 图标 | 状态 | 说明 |
 | ---- | ---- | ---- |
-| 绿色 | 活跃 (Active) | 应用正在运行和监测 |
-| 黄色 | 已暂停 (Paused) | 暂停功能已启用 |
-| 灰色 | 不可用 (Unavailable) | 摄像头不可用 |
+| 🟢 绿色 | 活跃 | 应用正在运行和监测 |
+| 🟡 黄色 | 已暂停 | 暂停功能已启用 |
+| ⚪ 灰色 | 不可用 | 摄像头不可用 |
 
 **托盘菜单选项：**
 
@@ -110,8 +131,8 @@ python main.py 1          # 使用第二个摄像头
 
 | 设置项 | 说明 |
 | ------ | ---- |
-| 偏航阈值 | 偏航角容忍范围，5-30°。超出此阈值判定为偏离。 |
-| 翻滚阈值 | 翻滚角容忍范围，5-30°。超出此阈值判定为翻滚角偏离。 |
+| 偏航阈值 | 偏航角容忍范围，5–30°。超出此阈值判定为偏离。 |
+| 翻滚阈值 | 翻滚角容忍范围，5–30°。超出此阈值判定为翻滚角偏离。 |
 | 中立姿态 | 当前校准的基准姿态。点击 **校准中立姿态** 可重新校准（保持正对 5 秒）。 |
 | 摄像头 | 选择使用的摄像头（0 = 默认摄像头）。 |
 | 提示音 | 开关提示音。 |
@@ -123,8 +144,6 @@ python main.py 1          # 使用第二个摄像头
 
 设置会持久化保存到 `~/.config/eyes/config.yaml`（通过 [platformdirs](https://pypi.org/project/platformdirs/)）。你可以直接编辑此文件，也可以使用设置界面。
 
-### 配置项说明
-
 ```yaml
 yaw_threshold: 15.0        # 偏航角容忍范围（度）
 roll_threshold: 10.0       # 翻滚角容忍范围（度）
@@ -134,7 +153,7 @@ camera_index: 0            # 使用的摄像头索引
 snooze_until_iso: null     # 暂停到期时间（ISO 8601），null=未暂停，"indefinite"=手动恢复
 sound_enabled: false       # 是否启用提示音
 autostart_enabled: false   # 开机自动启动
-language: zh-CN            # UI 语言（目前仅支持中文）
+language: zh-CN            # UI 语言
 ```
 
 ---
@@ -248,9 +267,9 @@ eyes/
 
 | 计时器 | 触发条件 | 重置条件 | 行为说明 |
 | ------- | -------- | -------- | -------- |
-| **偏离屏幕连续计时** | 处于 `OFF_AXIS_LEFT` 或 `OFF_AXIS_RIGHT` | 恢复到 `FACING_SCREEN` 或变成 `NO_FACE` | 首次偏离 5 秒后发出调整提醒，之后每 30 秒重复一次。 |
-| **正对屏幕时间累计器 (S4)** | 处于 `FACING_SCREEN` | 短暂偏离不会重置，只会暂停 | 累计正对屏幕 300 秒后 → 显示表扬提醒，重置为 0 重新开始。 |
-| **人脸检测时间累计器 (S5)** | 检测到任何人脸状态（非 NO_FACE） | NO_FACE 时暂停但不会重置 | 累计 900 秒后 → 显示"请眺望远方"眼休提醒，重置为 0 重新开始。 |
+| **偏离屏幕连续计时** | 处于 OFF_AXIS_LEFT 或 OFF_AXIS_RIGHT | 恢复到 FACING_SCREEN 或变成 NO_FACE | 首次偏离 5 秒后发出调整提醒，之后每 30 秒重复一次。 |
+| **正对屏幕时间累计器 (S4)** | 处于 FACING_SCREEN | 短暂偏离不会重置，只会暂停 | 累计 300 秒后 → 显示表扬提醒，重置为 0。 |
+| **人脸检测时间累计器 (S5)** | 检测到任何人脸状态（非 NO_FACE） | NO_FACE 时暂停但不会重置 | 累计 900 秒后 → 显示"请眺望远方"提醒，重置为 0。 |
 
 **暂停行为：** 暂停期间，所有计时器和累计器冻结在当前值（不前进也不后退）。恢复后会从冻结的位置继续。
 
@@ -270,12 +289,13 @@ eyes/
 ### 环境搭建
 
 ```bash
-# 创建并激活虚拟环境
+# 使用 uv（推荐）
+uv sync --extra dev
+
+# 使用 pip
 python -m venv .venv
 source .venv/bin/activate  # Linux/macOS
 .venv\Scripts\activate     # Windows
-
-# 安装包含开发依赖的版本
 pip install -e ".[dev]"
 ```
 
@@ -292,10 +312,6 @@ pytest --cov=src --cov-report=term-missing
 ruff check src/
 ```
 
-### Pre-commit
-
-尚未配置。参见 `AGENTS.md` 了解项目规范。
-
 ---
 
 ## 常见问题
@@ -310,7 +326,7 @@ ruff check src/
 
 ### "请向右调整" / "请向左调整" 一直出现
 
-你需要重新校准中立姿态。面向屏幕保持放松的坐姿 5 秒，或在 **打开设置** → **校准中立姿态** 中重新校准。如果自然坐姿有角度偏差，重新校准会设置更准确的中立基准。
+你需要重新校准中立姿态。面向屏幕保持放松的坐姿 5 秒，或在 **打开设置** → **校准中立姿态** 中重新校准。
 
 ### 阈值感觉太严格 / 太宽松
 
