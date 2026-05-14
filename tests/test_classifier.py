@@ -159,6 +159,76 @@ class TestClassifyCustomThresholds:
         assert classify(HeadPose(0.0, 90.0), thresholds=thresholds) == PoseState.FACING_SCREEN
 
 
+class TestClassifyHysteresis:
+    """Hysteresis prevents state flickering near the yaw threshold."""
+
+    def test_default_prev_state_behaves_identically(self) -> None:
+        """Without prev_state, classify behaves the same as before."""
+        assert classify(HeadPose(0.5, 0.0)) == PoseState.FACING_SCREEN
+        assert classify(HeadPose(1.5, 0.0)) == PoseState.OFF_AXIS_RIGHT
+
+    def test_off_axis_stays_off_axis_in_hysteresis_zone(self) -> None:
+        """When prev was OFF_AXIS, yaw_dev in hysteresis zone keeps OFF_AXIS."""
+        assert (
+            classify(HeadPose(0.7, 0.0), prev_state=PoseState.OFF_AXIS_RIGHT)
+            == PoseState.OFF_AXIS_RIGHT
+        )
+
+    def test_off_axis_returns_to_facing_below_hysteresis(self) -> None:
+        """When prev was OFF_AXIS, yaw_dev ≤ hysteresis returns FACING_SCREEN."""
+        assert (
+            classify(HeadPose(0.5, 0.0), prev_state=PoseState.OFF_AXIS_RIGHT)
+            == PoseState.FACING_SCREEN
+        )
+
+    def test_facing_stays_facing_in_hysteresis_zone(self) -> None:
+        """When prev was FACING_SCREEN, yaw_dev in hysteresis zone stays FACING_SCREEN."""
+        assert (
+            classify(HeadPose(0.7, 0.0), prev_state=PoseState.FACING_SCREEN)
+            == PoseState.FACING_SCREEN
+        )
+
+    def test_custom_hysteresis_threshold(self) -> None:
+        """Custom yaw_hysteresis_deg controls the return-to-facing boundary."""
+        thresholds = Thresholds(yaw_deg=1.0, yaw_hysteresis_deg=0.3)
+        # 0.5° > 0.3° hysteresis → stays OFF_AXIS
+        assert (
+            classify(
+                HeadPose(0.5, 0.0),
+                thresholds=thresholds,
+                prev_state=PoseState.OFF_AXIS_RIGHT,
+            )
+            == PoseState.OFF_AXIS_RIGHT
+        )
+        # 0.3° ≤ 0.3° hysteresis → returns FACING_SCREEN
+        assert (
+            classify(
+                HeadPose(0.3, 0.0),
+                thresholds=thresholds,
+                prev_state=PoseState.OFF_AXIS_RIGHT,
+            )
+            == PoseState.FACING_SCREEN
+        )
+
+    def test_hysteresis_applies_to_left_direction(self) -> None:
+        """Hysteresis works symmetrically for OFF_AXIS_LEFT."""
+        assert (
+            classify(HeadPose(-0.7, 0.0), prev_state=PoseState.OFF_AXIS_LEFT)
+            == PoseState.OFF_AXIS_LEFT
+        )
+        assert (
+            classify(HeadPose(-0.5, 0.0), prev_state=PoseState.OFF_AXIS_LEFT)
+            == PoseState.FACING_SCREEN
+        )
+
+    def test_no_face_prev_state_has_no_hysteresis(self) -> None:
+        """NO_FACE prev_state uses strict threshold (no special treatment)."""
+        assert (
+            classify(HeadPose(0.7, 0.0), prev_state=PoseState.NO_FACE)
+            == PoseState.FACING_SCREEN
+        )
+
+
 class TestClassifyPureFunction:
     """Verify classify is a pure function (no mutation, no side effects)."""
 

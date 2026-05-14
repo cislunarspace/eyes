@@ -194,3 +194,45 @@ def test_tick_classifies_relative_to_neutral_pose() -> None:
     assert loop.current_yaw == 10.5
     assert loop.current_roll == -4.0
     assert loop.current_state == PoseState.FACING_SCREEN
+
+
+class _MutableDetector:
+    """Detector whose pose can be changed between ticks."""
+
+    def __init__(self, pose: HeadPose | None) -> None:
+        self.pose = pose
+
+    def detect(self, frame: np.ndarray) -> HeadPose | None:
+        return self.pose
+
+
+def test_sense_loop_hysteresis_prevents_flicker() -> None:
+    """Verify SenseLoop passes prev_state to classify, enabling hysteresis."""
+    detector = _MutableDetector(HeadPose(2.0, 0.0))
+    loop = SenseLoop(
+        detector,
+        neutral=NeutralPose(),
+        thresholds=Thresholds(yaw_deg=1.0, yaw_hysteresis_deg=0.5),
+        accumulator_config=AccumulatorConfig(),
+    )
+
+    frame = np.zeros((1, 1, 3), dtype=np.uint8)
+
+    # Tick 1: yaw_dev=2.0 > 1.0 → OFF_AXIS_RIGHT
+    loop.tick(frame, dt=0.1)
+    assert loop.current_state == PoseState.OFF_AXIS_RIGHT
+
+    # Tick 2: yaw_dev=0.7, in hysteresis zone — prev was OFF_AXIS → stays OFF_AXIS
+    detector.pose = HeadPose(0.7, 0.0)
+    loop.tick(frame, dt=0.1)
+    assert loop.current_state == PoseState.OFF_AXIS_RIGHT
+
+    # Tick 3: yaw_dev=0.5 ≤ 0.5 → returns FACING_SCREEN
+    detector.pose = HeadPose(0.5, 0.0)
+    loop.tick(frame, dt=0.1)
+    assert loop.current_state == PoseState.FACING_SCREEN
+
+    # Tick 4: yaw_dev=0.7, in hysteresis zone — prev was FACING → stays FACING
+    detector.pose = HeadPose(0.7, 0.0)
+    loop.tick(frame, dt=0.1)
+    assert loop.current_state == PoseState.FACING_SCREEN

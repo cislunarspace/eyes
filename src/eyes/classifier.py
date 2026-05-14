@@ -86,12 +86,14 @@ class NeutralPose:
 class Thresholds:
     yaw_deg: float = 1.0
     roll_deg: float = 90.0  # Disabled: roll no longer affects classification
+    yaw_hysteresis_deg: float = 0.5
 
 
 def classify(
     pose: Optional[HeadPose],
     neutral: NeutralPose = NeutralPose(),
     thresholds: Thresholds = Thresholds(),
+    prev_state: PoseState = PoseState.NO_FACE,
 ) -> PoseState:
     """Classify the current head pose.
 
@@ -103,6 +105,11 @@ def classify(
         The canonical yaw/roll for "facing the screen" (default 0,0).
     thresholds:
         Tolerance thresholds (default yaw ±1°, roll disabled).
+    prev_state:
+        The previous frame's PoseState, used for hysteresis. When the
+        previous state was OFF_AXIS, a looser threshold
+        (``yaw_hysteresis_deg``) is used to return to FACING_SCREEN,
+        preventing flickering near the boundary.
 
     Returns
     -------
@@ -117,8 +124,14 @@ def classify(
         return PoseState.NO_FACE
 
     yaw_dev = pose.yaw - neutral.yaw
+    abs_yaw_dev = abs(yaw_dev)
 
-    yaw_outside = abs(yaw_dev) > thresholds.yaw_deg
+    was_off_axis = prev_state in (PoseState.OFF_AXIS_LEFT, PoseState.OFF_AXIS_RIGHT)
+
+    if was_off_axis:
+        yaw_outside = abs_yaw_dev > thresholds.yaw_hysteresis_deg
+    else:
+        yaw_outside = abs_yaw_dev > thresholds.yaw_deg
 
     if not yaw_outside:
         return PoseState.FACING_SCREEN

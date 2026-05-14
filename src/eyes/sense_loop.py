@@ -133,11 +133,13 @@ class SenseLoop:
             self.current_pose = None
             self.current_state = PoseState.NO_FACE
         else:
+            prev = self.current_state
             self.current_pose = self.detector.detect(frame)
             self.current_state = classify(
                 self.current_pose,
                 neutral=self.neutral,
                 thresholds=self.thresholds,
+                prev_state=prev,
             )
 
         events: list[SenseEvent] = []
