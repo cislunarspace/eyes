@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from eyes.calibration import PoseSample, compute_median_pose
 from eyes.config_store import ConfigStore
+from eyes.i18n import t
 
 # Slider ranges
 _YAW_SLIDER_MIN = 1
@@ -38,6 +39,8 @@ _STREAK_SLIDER_TICK = 5
 _REPEAT_SLIDER_MIN = 10
 _REPEAT_SLIDER_MAX = 120
 _REPEAT_SLIDER_TICK = 10
+
+_LANGUAGE_ITEMS = [("中文", "zh-CN"), ("English", "en")]
 
 
 class SettingsDialog(QDialog):
@@ -63,7 +66,7 @@ class SettingsDialog(QDialog):
         self._calibration_timer: QTimer | None = None
         self._calibration_countdown = 5.0
 
-        self.setWindowTitle("设置")
+        self.setWindowTitle(f"Eyes — {t('settings.title')}")
         self.setMinimumWidth(400)
         self._setup_ui()
 
@@ -81,6 +84,12 @@ class SettingsDialog(QDialog):
         self._form_layout = QFormLayout()
         main_layout.addLayout(self._form_layout)
 
+        # Real-time pose display
+        self._realtime_yaw_label = QLabel("--")
+        self._realtime_pitch_label = QLabel("--")
+        self._form_layout.addRow(t("settings.realtime_yaw"), self._realtime_yaw_label)
+        self._form_layout.addRow(t("settings.realtime_pitch"), self._realtime_pitch_label)
+
         # Yaw threshold slider
         yaw_layout = QHBoxLayout()
         self._yaw_slider = QSlider()
@@ -94,7 +103,7 @@ class SettingsDialog(QDialog):
         self._yaw_value_label = QLabel(f"{self._get_value('yaw_threshold', 1.0):.0f}°")
         yaw_layout.addWidget(self._yaw_slider)
         yaw_layout.addWidget(self._yaw_value_label)
-        self._form_layout.addRow("偏航阈值", yaw_layout)
+        self._form_layout.addRow(t("settings.yaw_threshold"), yaw_layout)
 
         # Off-axis streak threshold slider (首次提示等待时间)
         streak_layout = QHBoxLayout()
@@ -106,10 +115,10 @@ class SettingsDialog(QDialog):
         self._streak_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self._streak_slider.setTickInterval(_STREAK_SLIDER_TICK)
         self._streak_slider.valueChanged.connect(self._on_streak_threshold_changed)
-        self._streak_value_label = QLabel(f"{self._get_value('off_axis_streak_threshold_seconds', 1.0):.0f}秒")
+        self._streak_value_label = QLabel(f"{self._get_value('off_axis_streak_threshold_seconds', 1.0):.0f}s")
         streak_layout.addWidget(self._streak_slider)
         streak_layout.addWidget(self._streak_value_label)
-        self._form_layout.addRow("首次提示延迟", streak_layout)
+        self._form_layout.addRow(t("settings.first_prompt_delay"), streak_layout)
 
         # Off-axis repeat interval slider (重复提示间隔)
         repeat_layout = QHBoxLayout()
@@ -121,37 +130,37 @@ class SettingsDialog(QDialog):
         self._repeat_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self._repeat_slider.setTickInterval(_REPEAT_SLIDER_TICK)
         self._repeat_slider.valueChanged.connect(self._on_repeat_interval_changed)
-        self._repeat_value_label = QLabel(f"{self._get_value('off_axis_repeat_interval_seconds', 10.0):.0f}秒")
+        self._repeat_value_label = QLabel(f"{self._get_value('off_axis_repeat_interval_seconds', 10.0):.0f}s")
         repeat_layout.addWidget(self._repeat_slider)
         repeat_layout.addWidget(self._repeat_value_label)
-        self._form_layout.addRow("重复提示间隔", repeat_layout)
+        self._form_layout.addRow(t("settings.repeat_prompt_interval"), repeat_layout)
 
-        # Roll threshold slider (disabled: roll no longer affects classification)
-        roll_layout = QHBoxLayout()
+        # Pitch threshold slider (俯仰阈值)
+        pitch_layout = QHBoxLayout()
         self._roll_slider = QSlider()
         self._roll_slider.setOrientation(Qt.Orientation.Horizontal)
         self._roll_slider.setMinimum(_ROLL_SLIDER_MIN)
         self._roll_slider.setMaximum(_ROLL_SLIDER_MAX)
-        self._roll_slider.setValue(int(self._get_value("roll_threshold", 90.0)))
+        self._roll_slider.setValue(int(self._get_value("roll_threshold", 5.0)))
         self._roll_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self._roll_slider.setTickInterval(_ROLL_SLIDER_TICK)
         self._roll_slider.valueChanged.connect(self._on_roll_changed)
-        self._roll_value_label = QLabel(f"{self._get_value('roll_threshold', 90.0):.0f}° (已禁用)")
-        roll_layout.addWidget(self._roll_slider)
-        roll_layout.addWidget(self._roll_value_label)
-        self._form_layout.addRow("翻滚阈值 (已禁用)", roll_layout)
+        self._roll_value_label = QLabel(f"{self._get_value('roll_threshold', 5.0):.0f}°")
+        pitch_layout.addWidget(self._roll_slider)
+        pitch_layout.addWidget(self._roll_value_label)
+        self._form_layout.addRow(t("settings.pitch_threshold"), pitch_layout)
 
         # Neutral pose display and calibrate button
         pose_layout = QHBoxLayout()
         self._neutral_pose_label = QLabel(
             f"({self._get_value('neutral_yaw', 0.0):+.1f}°, {self._get_value('neutral_roll', 0.0):+.1f}°)"
         )
-        self._calibrate_button = QPushButton("校准中立姿态")
+        self._calibrate_button = QPushButton(t("settings.calibrate_button"))
         self._calibrate_button.clicked.connect(self._start_calibration)
         pose_layout.addWidget(self._neutral_pose_label)
         pose_layout.addWidget(self._calibrate_button)
         pose_layout.addStretch()
-        self._form_layout.addRow("中立姿态", pose_layout)
+        self._form_layout.addRow(t("settings.neutral_pose"), pose_layout)
 
         # Calibration countdown label
         self._countdown_label = QLabel("")
@@ -162,30 +171,41 @@ class SettingsDialog(QDialog):
         self._camera_combo = QComboBox()
         self._populate_camera_list()
         self._camera_combo.currentIndexChanged.connect(self._on_camera_changed)
-        self._form_layout.addRow("摄像头", self._camera_combo)
+        self._form_layout.addRow(t("settings.camera"), self._camera_combo)
 
         # Sound toggle
-        self._sound_toggle = QPushButton("开启" if self._get_value("sound_enabled", False) else "关闭")
+        self._sound_toggle = QPushButton(
+            t("settings.on") if self._get_value("sound_enabled", False) else t("settings.off")
+        )
         self._sound_toggle.setCheckable(True)
         self._sound_toggle.setChecked(self._get_value("sound_enabled", False))
         self._sound_toggle.clicked.connect(self._on_sound_toggled)
-        self._form_layout.addRow("提示音", self._sound_toggle)
+        self._form_layout.addRow(t("settings.sound"), self._sound_toggle)
 
         # Autostart toggle
-        self._autostart_toggle = QPushButton("开启" if self._get_value("autostart_enabled", False) else "关闭")
+        self._autostart_toggle = QPushButton(
+            t("settings.on") if self._get_value("autostart_enabled", False) else t("settings.off")
+        )
         self._autostart_toggle.setCheckable(True)
         self._autostart_toggle.setChecked(self._get_value("autostart_enabled", False))
         self._autostart_toggle.clicked.connect(self._on_autostart_toggled)
-        self._form_layout.addRow("开机自启", self._autostart_toggle)
+        self._form_layout.addRow(t("settings.autostart"), self._autostart_toggle)
 
-        # Language display (read-only)
-        self._language_label = QLabel(self._get_value("language", "zh-CN"))
-        self._form_layout.addRow("语言", self._language_label)
+        # Language selector (combo box with pending change tracking)
+        self._language_combo = QComboBox()
+        for label_text, lang_value in _LANGUAGE_ITEMS:
+            self._language_combo.addItem(label_text, lang_value)
+        current_lang = self._get_value("language", "zh-CN")
+        lang_idx = self._language_combo.findData(current_lang)
+        if lang_idx >= 0:
+            self._language_combo.setCurrentIndex(lang_idx)
+        self._language_combo.currentIndexChanged.connect(self._on_language_changed)
+        self._form_layout.addRow(t("settings.language"), self._language_combo)
 
         # Open data directory button
-        self._open_dir_button = QPushButton("打开数据目录")
+        self._open_dir_button = QPushButton(t("settings.open_data_directory"))
         self._open_dir_button.clicked.connect(self._open_data_directory)
-        self._form_layout.addRow("数据目录", self._open_dir_button)
+        self._form_layout.addRow(t("settings.data_directory"), self._open_dir_button)
 
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
@@ -209,7 +229,7 @@ class SettingsDialog(QDialog):
                 break
 
         for idx in available_cameras:
-            self._camera_combo.addItem(f"摄像头 {idx}", idx)
+            self._camera_combo.addItem(t("settings.camera_index").format(index=idx), idx)
 
         # Select current camera
         current_camera = self._get_value("camera_index", 0)
@@ -222,11 +242,11 @@ class SettingsDialog(QDialog):
         self._set_value("yaw_threshold", float(value))
 
     def _on_streak_threshold_changed(self, value: int) -> None:
-        self._streak_value_label.setText(f"{value}秒")
+        self._streak_value_label.setText(f"{value}s")
         self._set_value("off_axis_streak_threshold_seconds", float(value))
 
     def _on_repeat_interval_changed(self, value: int) -> None:
-        self._repeat_value_label.setText(f"{value}秒")
+        self._repeat_value_label.setText(f"{value}s")
         self._set_value("off_axis_repeat_interval_seconds", float(value))
 
     def _on_roll_changed(self, value: int) -> None:
@@ -240,18 +260,25 @@ class SettingsDialog(QDialog):
 
     def _on_sound_toggled(self, checked: bool) -> None:
         self._set_value("sound_enabled", checked)
-        self._sound_toggle.setText("开启" if checked else "关闭")
+        self._sound_toggle.setText(t("settings.on") if checked else t("settings.off"))
 
     def _on_autostart_toggled(self, checked: bool) -> None:
         self._set_value("autostart_enabled", checked)
-        self._autostart_toggle.setText("开启" if checked else "关闭")
+        self._autostart_toggle.setText(t("settings.on") if checked else t("settings.off"))
+
+    def _on_language_changed(self, index: int) -> None:
+        if index >= 0:
+            lang_value = self._language_combo.itemData(index)
+            self._set_value("language", lang_value)
 
     def _start_calibration(self) -> None:
         """Start 5-second calibration countdown."""
         self._calibration_samples = []
         self._calibration_countdown = 5.0
         self._calibrate_button.setEnabled(False)
-        self._countdown_label.setText(f"校准中... {int(self._calibration_countdown)}秒")
+        self._countdown_label.setText(
+            t("calibration.in_progress").format(seconds=int(self._calibration_countdown))
+        )
         self.calibration_started.emit()
 
         # Start sampling timer (every 100ms = 10 Hz)
@@ -267,7 +294,9 @@ class SettingsDialog(QDialog):
             self._finish_calibration()
             return
 
-        self._countdown_label.setText(f"校准中... {int(self._calibration_countdown) + 1}秒")
+        self._countdown_label.setText(
+            t("calibration.in_progress").format(seconds=int(self._calibration_countdown) + 1)
+        )
 
     def _finish_calibration(self) -> None:
         """Finish calibration and compute median."""
@@ -285,7 +314,7 @@ class SettingsDialog(QDialog):
             self.calibration_completed.emit(median.yaw, median.roll)
 
         self._calibrate_button.setEnabled(True)
-        self._countdown_label.setText("校准完成!")
+        self._countdown_label.setText(t("calibration.complete"))
 
     def add_calibration_sample(self, yaw: float, roll: float) -> bool:
         """Add a pose sample during calibration.
@@ -328,3 +357,23 @@ class SettingsDialog(QDialog):
     def get_pending_camera_index(self) -> int | None:
         """Return pending camera index if changed, None otherwise."""
         return self._pending_changes.get("camera_index")
+
+    def update_current_pose(self, yaw: float | None, pitch: float | None) -> None:
+        """Update the real-time pose display. Called by controller each tick."""
+        if yaw is not None:
+            self._realtime_yaw_label.setText(f"{yaw:+.1f}°")
+        else:
+            self._realtime_yaw_label.setText("--")
+        if pitch is not None:
+            self._realtime_pitch_label.setText(f"{pitch:+.1f}°")
+        else:
+            self._realtime_pitch_label.setText("--")
+
+    def refresh_language(self) -> None:
+        """Refresh all UI text after language change.
+
+        Note: Settings dialog does not refresh during the current session.
+        This method is provided for interface consistency but the dialog
+        keeps the language it was opened with.
+        """
+        pass
