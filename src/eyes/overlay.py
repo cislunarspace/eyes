@@ -43,6 +43,8 @@ class NotifierOverlay(QWidget):
 
     def _setup_ui(self) -> None:
         """Create the overlay layout with a large arrow label and a text label below it."""
+        self.setMinimumWidth(260)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(8)
@@ -68,12 +70,14 @@ class NotifierOverlay(QWidget):
         )
 
     def _move_to_active_screen(self) -> None:
-        """Position the overlay near a corner of the active screen."""
+        """Position the overlay at bottom-center of the primary screen."""
         screen = QApplication.primaryScreen()
         if screen is None:
             return
-        geometry = screen.availableGeometry()
-        self.move(geometry.right() - self.width() - 32, geometry.top() + 32)
+        geo = screen.availableGeometry()
+        x = geo.x() + (geo.width() - self.width()) // 2
+        y = geo.y() + geo.height() - self.height() - 24
+        self.move(x, y)
 
     def show_correction(self, direction: PoseState) -> None:
         """Show correction prompt for the given direction."""

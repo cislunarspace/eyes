@@ -1,6 +1,6 @@
 # Custom always-on-top floating window instead of native OS toasts
 
-User-visible prompts ("当前姿势良好", "请眺望远方", "请向左/右调整") are rendered by a frameless, transparent, always-on-top Qt widget that the app draws and animates itself. The window appears on demand near a corner of the active screen, lingers for a few seconds, then dismisses itself. Native OS toast notifications (Windows Toast / Linux libnotify) were rejected as the primary mechanism.
+User-visible prompts ("当前姿势良好", "请眺望远方", "请向左/右调整") are rendered by a frameless, transparent, always-on-top Qt widget that the app draws and animates itself. The window appears on demand at the bottom-center of the primary screen (24px above the taskbar), lingers for a few seconds, then dismisses itself. Native OS toast notifications (Windows Toast / Linux libnotify) were rejected as the primary mechanism.
 
 ## Considered Options
 
