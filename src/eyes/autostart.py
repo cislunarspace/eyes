@@ -58,6 +58,7 @@ class WindowsAutostartBackend(AutostartBackend):
         return None
 
     def enable(self, exec_path: str | None = None) -> None:
+        """Write the app executable path to the HKCU Run registry key so it launches on login."""
         if self._winreg is None:
             return
         if exec_path is None:
@@ -81,6 +82,7 @@ class WindowsAutostartBackend(AutostartBackend):
             raise AutostartError(f"Failed to enable autostart: {e}") from e
 
     def disable(self) -> None:
+        """Remove the Eyes value from the HKCU Run registry key, undoing autostart."""
         if self._winreg is None:
             return
         try:
@@ -101,6 +103,7 @@ class WindowsAutostartBackend(AutostartBackend):
             raise AutostartError(f"Failed to disable autostart: {e}") from e
 
     def is_enabled(self) -> bool:
+        """Check whether the Eyes value exists in the HKCU Run registry key."""
         if self._winreg is None:
             return False
         try:
@@ -137,6 +140,7 @@ class LinuxAutostartBackend(AutostartBackend):
         return f"{sys.executable} -m eyes"
 
     def enable(self, exec_path: str | None = None) -> None:
+        """Write a .desktop entry to the XDG autostart directory to launch on login."""
         if exec_path is None:
             exec_path = self._get_exec_path()
         try:
@@ -148,6 +152,7 @@ class LinuxAutostartBackend(AutostartBackend):
             raise AutostartError(f"Failed to enable autostart: {e}") from e
 
     def disable(self) -> None:
+        """Remove the .desktop entry from the XDG autostart directory."""
         if self._desktop_file.exists():
             try:
                 self._desktop_file.unlink()
@@ -156,6 +161,7 @@ class LinuxAutostartBackend(AutostartBackend):
                 raise AutostartError(f"Failed to disable autostart: {e}") from e
 
     def is_enabled(self) -> bool:
+        """Check whether a valid .desktop entry exists in the XDG autostart directory."""
         if not self._desktop_file.exists():
             return False
         try:
@@ -165,6 +171,7 @@ class LinuxAutostartBackend(AutostartBackend):
             return False
 
     def _build_desktop_entry(self, exec_path: str) -> str:
+        """Build the content of a freedesktop .desktop autostart entry."""
         return (
             "[Desktop Entry]\n"
             "Type=Application\n"
