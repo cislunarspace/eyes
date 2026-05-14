@@ -350,6 +350,10 @@ class AppController:
         if self._settings_dialog is not None and current_yaw is not None and current_roll is not None:
             self._settings_dialog.add_calibration_sample(current_yaw, current_roll)
 
+        # Push real-time pose to settings dialog for display
+        if self._settings_dialog is not None:
+            self._settings_dialog.update_current_pose(current_yaw, current_roll)
+
         # Log state changes
         self._log_state_change(current_state)
 

@@ -56,15 +56,16 @@ class HeadPose:
     yaw:
         Rotation of the head about the vertical (up) axis, in degrees.
     roll:
-        Tilt of the head about the forward (camera-facing) axis, in degrees.
+        Pitch (up/down tilt) of the head in degrees, derived from landmark
+        geometry.  Positive = looking up (仰头), negative = looking down (低头).
 
     Sign convention (ADR-0001 and CONTEXT.md)
     -----------------------------------------
     Positive yaw   = head turned to the user's own RIGHT
                     (camera sees the face rotated to its left).
     Negative yaw   = head turned to the user's own LEFT.
-    Positive roll  = head tilted clockwise (right ear → right shoulder).
-    Pitch is intentionally omitted; callers MUST use this convention.
+    Positive roll  = looking up (仰头).
+    Negative roll  = looking down (低头).
 
     Immutability
     ------------
