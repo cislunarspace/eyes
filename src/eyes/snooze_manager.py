@@ -10,16 +10,19 @@ from .tray_controller import TrayIconState
 
 
 class ConfigStoreLike(Protocol):
+    """Minimal interface for reading and persisting snooze timestamps."""
     def load(self) -> Any: ...
     def update(self, **kwargs: Any) -> Any: ...
 
 
 class AccumulatorLike(Protocol):
+    """Interface for freezing and unfreezing the accumulation engine."""
     def snooze(self) -> None: ...
     def resume(self) -> None: ...
 
 
 class TrayLike(Protocol):
+    """Interface for updating the system-tray icon to reflect current state."""
     def set_state(self, state: TrayIconState) -> None: ...
 
 

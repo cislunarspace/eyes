@@ -15,11 +15,18 @@ from .detector import HeadPoseDetector
 from .event_log import EventLog
 from .main_window import MainWindow
 from .overlay import NotifierOverlay
-from .sense_loop import AccumulatorConfig, PromptEvent, SenseLoop
+from .sense_loop import (
+    AccumulatorConfig,
+    CorrectionEvent,
+    EyeRestEvent,
+    GoodPostureEvent,
+    SenseEvent,
+    SenseLoop,
+)
 from .settings_dialog import SettingsDialog
 from .snooze_manager import SnoozeManager
 from .tray_controller import TrayController, TrayIconState
-from .types import AppEventKind
+from .types import AppEventKind, WarningLevel, WarningLevelEvent
 
 # Tick interval: 100 ms = 0.1 seconds
 _DT_SECONDS = 0.1
@@ -178,6 +185,7 @@ class AppController:
             self._detector.close()
 
     def _on_about_to_quit(self) -> None:
+        """Stop all timers and close the window before the application exits."""
         self._timer.stop()
         self._camera_retry_timer.stop()
         self._window.close()
@@ -204,27 +212,46 @@ class AppController:
             self._event_log.append(AppEventKind.STATE_CHANGE, state=state.value)
             self._last_state = state
 
-    def _dispatch_prompt_event(self, event: PromptEvent) -> None:
-        """Dispatch a SenseLoop prompt event to logging and overlay output."""
-        if event.kind == "correction" and event.direction is not None:
-            direction = "LEFT" if event.direction == PoseState.OFF_AXIS_LEFT else "RIGHT"
-            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="adjust", direction=direction)
-            self._overlay.show_correction(event.direction)
-        elif event.kind == "good_posture":
-            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="good_posture")
-            self._overlay.show_good_posture()
-        elif event.kind == "eye_rest":
-            self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="eye_rest")
-            self._overlay.show_eye_rest()
+    def _dispatch_prompt_event(self, event: SenseEvent) -> None:
+        """Dispatch a SenseLoop event to logging, overlay, and UI output."""
+        match event:
+            case CorrectionEvent(direction=direction):
+                dir_str = "LEFT" if direction == PoseState.OFF_AXIS_LEFT else "RIGHT"
+                self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="adjust", direction=dir_str)
+                self._overlay.show_correction(direction)
+            case GoodPostureEvent():
+                self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="good_posture")
+                self._overlay.show_good_posture()
+            case EyeRestEvent():
+                self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="eye_rest")
+                self._overlay.show_eye_rest()
+            case WarningLevelEvent():
+                self._event_log.append(AppEventKind.WARNING_LEVEL_CHANGED, level=event.level.value, direction=event.direction)
+                self._window.set_warning_level(event)
+
+    def _ensure_detector(self) -> bool:
+        """Lazily create the HeadPoseDetector if not yet initialized.
+
+        Returns False (and logs the error) if model loading fails.
+        """
+        if self._detector is not None:
+            self._sense_loop.detector = self._detector
+            return True
+        try:
+            self._detector = HeadPoseDetector()
+        except RuntimeError as exc:
+            self._event_log.append(AppEventKind.STATE_CHANGE, state=f"MODEL_LOAD_FAILED: {exc}")
+            self._sense_loop.detector = None
+            return False
+        self._sense_loop.detector = self._detector
+        return True
 
     def _init_camera_and_detector(self) -> bool:
         """Open the camera and build the detector. Returns True on success."""
         if not self._camera.open():
             return False
-        try:
-            self._detector = HeadPoseDetector()
-        except RuntimeError as exc:
-            self._event_log.append(AppEventKind.STATE_CHANGE, state=f"MODEL_LOAD_FAILED: {exc}")
+        if not self._ensure_detector():
+            self._camera.close()
             return False
         return True
 
@@ -242,8 +269,6 @@ class AppController:
             self._camera_retry_timer.start()
         else:
             self._camera_was_available = True
-            # Update sense loop with detector reference
-            self._sense_loop.detector = self._detector
 
         self._timer.timeout.connect(self._tick)
         self._timer.start()
@@ -252,17 +277,22 @@ class AppController:
 
     def _try_reopen_camera(self) -> None:
         """Attempt to reopen the camera. Called every 5 seconds when unavailable."""
-        if self._camera.retry_open():
-            # Camera is now available
-            self._event_log.append(AppEventKind.CAMERA_RESUMED)
-            self._camera_was_available = True
-            self._camera_unavailable_message_shown = False
-            self._camera_retry_timer.stop()
-            # Restore to active/paused state
-            self._tray.set_state(
-                TrayIconState.ACTIVE if not self._accumulator.is_snoozed else TrayIconState.PAUSED
-            )
-            self._window.clear_camera_unavailable_message()
+        if not self._camera.retry_open():
+            return
+        if not self._ensure_detector():
+            self._camera.close()
+            return
+
+        # Camera is now available
+        self._event_log.append(AppEventKind.CAMERA_RESUMED)
+        self._camera_was_available = True
+        self._camera_unavailable_message_shown = False
+        self._camera_retry_timer.stop()
+        # Restore to active/paused state
+        self._tray.set_state(
+            TrayIconState.ACTIVE if not self._accumulator.is_snoozed else TrayIconState.PAUSED
+        )
+        self._window.clear_camera_unavailable_message()
 
     def _tick(self) -> None:
         """One 10 Hz tick: read, detect, classify, accumulate, update UI."""
@@ -271,6 +301,7 @@ class AppController:
 
         # If camera is unavailable, show message if not already shown
         if not self._camera.is_available:
+            self._window.set_warning_level(WarningLevelEvent(level=WarningLevel.NORMAL, direction=None))
             self._window.set_state(None, None, None)
             if self._camera_was_available:
                 self._event_log.append(AppEventKind.CAMERA_UNAVAILABLE)
