@@ -12,6 +12,8 @@ _DEFAULT_OFF_AXIS_REPEAT_INTERVAL = 10.0
 
 
 class SnoozeTarget(Protocol):
+    """Protocol for objects that can be snoozed/resumed in lockstep with the engine."""
+
     def snooze(self) -> None: ...
     def resume(self) -> None: ...
 
@@ -51,23 +53,33 @@ class AccumulatorEngine:
         return self._snoozed
 
     def register_snooze_target(self, target: SnoozeTarget) -> None:
+        """Register a target to receive snooze/resume calls when the engine is snoozed/resumed."""
         self._snooze_targets.append(target)
 
     def snooze(self) -> None:
+        """Snooze the engine and propagate snooze to all registered targets."""
         self._snoozed = True
         for target in self._snooze_targets:
             target.snooze()
 
     def resume(self) -> None:
+        """Resume the engine and propagate resume to all registered targets."""
         self._snoozed = False
         for target in self._snooze_targets:
             target.resume()
 
     @property
     def warning_event(self) -> Optional[WarningLevelEvent]:
+        """The most recent warning-level transition, or None if no transition this tick."""
         return self._warning_event
 
     def tick(self, state: PoseState, dt: float) -> Optional[PoseState]:
+        """Advance the state machine by *dt* seconds.
+
+        Returns the correction direction (OFF_AXIS_LEFT / OFF_AXIS_RIGHT) when a
+        correction prompt should fire, or None.  Also drives the warning-level
+        state machine: NORMAL → WARNING → SEVERE → CORRECTED → NORMAL.
+        """
         self._warning_event = None
 
         if self._snoozed:

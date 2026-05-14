@@ -1,3 +1,5 @@
+"""PresenceTimeAccumulator — tracks continuous on-screen presence and fires at a threshold."""
+
 from __future__ import annotations
 
 from .classifier import PoseState
@@ -6,6 +8,7 @@ _DEFAULT_EYEREST_THRESHOLD = 900.0
 
 
 class PresenceTimeAccumulator:
+    """Accumulates time the user is present (face detected); emits True at the eyerest threshold."""
     def __init__(self, *, threshold_seconds: float | None = None) -> None:
         self._threshold = threshold_seconds if threshold_seconds is not None else _DEFAULT_EYEREST_THRESHOLD
         self._accumulated_seconds = 0.0
@@ -20,6 +23,7 @@ class PresenceTimeAccumulator:
         return self._snoozed
 
     def tick(self, state: PoseState, dt: float) -> bool:
+        """Accumulate *dt* while face is detected.  Resets and returns True at threshold."""
         if self._snoozed or state == PoseState.NO_FACE:
             return False
 
@@ -30,7 +34,7 @@ class PresenceTimeAccumulator:
         return False
 
     def acknowledge(self) -> None:
-        pass
+        """No-op. Exists to satisfy the SnoozeTarget protocol used by AccumulatorEngine."""
 
     def snooze(self) -> None:
         self._snoozed = True
