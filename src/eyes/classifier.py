@@ -14,11 +14,66 @@ from typing import Optional
 
 
 class PoseState(enum.Enum):
+    """Discrete head-pose states used throughout the sensing pipeline.
+
+    The sense loop produces one ``PoseState`` per frame via :func:`classify`.
+    Downstream accumulators (streak, facing-time, presence-time) consume
+    these states to drive warnings and corrective events.
+
+    States
+    ------
+    FACING_SCREEN
+        Head is within tolerance of the calibrated neutral pose.
+        Counts as "good posture" for facing-time accumulation.
+    OFF_AXIS_LEFT
+        Head yaw deviates left beyond the yaw threshold.
+        Triggers streak accumulation toward a correction event.
+    OFF_AXIS_RIGHT
+        Head yaw deviates right beyond the yaw threshold.
+        Triggers streak accumulation toward a correction event.
+    OFF_AXIS_OTHER
+        Roll-only deviation (yaw within threshold). Reserved for
+        future use; currently unreachable because roll threshold is
+        disabled by default.
+    NO_FACE
+        No face was detected in the frame. Pauses streak
+        accumulation and contributes to presence-time tracking.
+    """
+
     FACING_SCREEN = "FACING SCREEN"
     OFF_AXIS_LEFT = "OFF-AXIS LEFT"
     OFF_AXIS_RIGHT = "OFF-AXIS RIGHT"
     OFF_AXIS_OTHER = "OFF-AXIS OTHER"  # roll-only deviation
     NO_FACE = "NO FACE"
+
+
+@dataclass(frozen=True)
+class HeadPose:
+    """A single head-pose sample produced by ``HeadPoseDetector``.
+
+    Fields
+    ------
+    yaw:
+        Rotation of the head about the vertical (up) axis, in degrees.
+    roll:
+        Tilt of the head about the forward (camera-facing) axis, in degrees.
+
+    Sign convention (ADR-0001 and CONTEXT.md)
+    -----------------------------------------
+    Positive yaw   = head turned to the user's own RIGHT
+                    (camera sees the face rotated to its left).
+    Negative yaw   = head turned to the user's own LEFT.
+    Positive roll  = head tilted clockwise (right ear → right shoulder).
+    Pitch is intentionally omitted; callers MUST use this convention.
+
+    Immutability
+    ------------
+    ``HeadPose`` is a frozen value type — instances are safe to share between
+    the detector, sense loop, and classifier without defensive copies.
+    """
+
+    yaw: float
+    roll: float
 
 
 @dataclass(frozen=True)
@@ -34,8 +89,7 @@ class Thresholds:
 
 
 def classify(
-    yaw: Optional[float],
-    roll: Optional[float],
+    pose: Optional[HeadPose],
     neutral: NeutralPose = NeutralPose(),
     thresholds: Thresholds = Thresholds(),
 ) -> PoseState:
@@ -43,14 +97,12 @@ def classify(
 
     Parameters
     ----------
-    yaw:
-        Current yaw angle in degrees, or None if no face detected.
-    roll:
-        Current roll angle in degrees, or None if no face detected.
+    pose:
+        The current head-pose sample, or ``None`` when no face is detected.
     neutral:
         The canonical yaw/roll for "facing the screen" (default 0,0).
     thresholds:
-        Tolerance thresholds (default yaw ±15°, roll ±10°).
+        Tolerance thresholds (default yaw ±1°, roll disabled).
 
     Returns
     -------
@@ -61,10 +113,10 @@ def classify(
     Positive yaw = head turned to the user's own right → OFF_AXIS_RIGHT.
     Negative yaw = head turned to the user's own left  → OFF_AXIS_LEFT.
     """
-    if yaw is None or roll is None:
+    if pose is None:
         return PoseState.NO_FACE
 
-    yaw_dev = yaw - neutral.yaw
+    yaw_dev = pose.yaw - neutral.yaw
 
     yaw_outside = abs(yaw_dev) > thresholds.yaw_deg
 

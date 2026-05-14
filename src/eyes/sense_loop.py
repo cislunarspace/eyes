@@ -15,6 +15,15 @@ from .types import WarningLevelEvent
 
 
 class HeadPoseDetectorLike(Protocol):
+    """Structural interface that any head-pose detector must satisfy.
+
+    The sense loop depends on this protocol rather than a concrete detector
+    class, allowing test doubles and alternative backends without coupling.
+    Implementations receive a raw camera frame and return a :class:`HeadPose`
+    with absolute yaw/roll angles (in degrees) when a face is found, or
+    ``None`` when no face is detected.
+    """
+
     def detect(self, frame: np.ndarray) -> Optional[HeadPose]:
         """Return a ``HeadPose`` when a face is detected, otherwise ``None``."""
 
@@ -82,10 +91,44 @@ class SenseLoop:
         return self.current_pose.roll if self.current_pose is not None else None
 
     def update_classifier(self, neutral: NeutralPose, thresholds: Thresholds) -> None:
+        """Replace the calibration reference used by the classify step.
+
+        Takes effect on the next :meth:`tick` call.  Typically called after
+        the user completes a calibration gesture or when settings change.
+        """
         self.neutral = neutral
         self.thresholds = thresholds
 
     def tick(self, frame: np.ndarray | None, dt: float) -> list[SenseEvent]:
+        """Execute one sensing cycle and return emitted events.
+
+        Pipeline
+        --------
+        1. **Detect** — feed the frame to the detector (or clear pose if
+           frame/detector is absent).
+        2. **Classify** — map the raw pose to a :class:`PoseState` using
+           the current calibration.
+        3. **Accumulate** — fan out the state to three independent
+           accumulators:
+           - ``AccumulatorEngine`` — streak tracking → :class:`CorrectionEvent`
+             and :class:`WarningLevelEvent`.
+           - ``FacingTimeAccumulator`` — cumulative facing time →
+             :class:`GoodPostureEvent`.
+           - ``PresenceTimeAccumulator`` — cumulative presence time →
+             :class:`EyeRestEvent`.
+
+        Parameters
+        ----------
+        frame:
+            Camera frame for detection, or ``None`` to signal absence.
+        dt:
+            Seconds elapsed since the last tick.
+
+        Returns
+        -------
+        list[SenseEvent]
+            Zero or more events generated this cycle.
+        """
         if frame is None or self.detector is None:
             self.current_pose = None
             self.current_state = PoseState.NO_FACE
