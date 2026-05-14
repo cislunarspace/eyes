@@ -1,11 +1,7 @@
 """Head-pose detector wrapping MediaPipe FaceLandmarker.
 
-Sign convention (documented here, not just in code):
-  Positive yaw   = head turned to the user's own RIGHT  (camera sees face rotated left)
-  Positive roll  = head tilted clockwise (right ear toward right shoulder)
-
-All callers MUST use this convention. The detector returns raw angles
-from the face transformation matrix; orientation is the camera's reference frame.
+See ``eyes.classifier.HeadPose`` for the canonical sign convention and field
+documentation. This module produces ``HeadPose`` values from raw camera frames.
 """
 
 from __future__ import annotations
@@ -22,6 +18,8 @@ from mediapipe.tasks.python.vision import (
     FaceLandmarkerOptions,
     RunningMode,
 )
+
+from .classifier import HeadPose
 
 # ---------------------------------------------------------------------------
 # Model
@@ -41,8 +39,8 @@ _MODEL_ASSET = str(_MODEL_LOCAL) if _MODEL_LOCAL.exists() else _MODEL_URL
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _euler_from_rotation_matrix(R: np.ndarray) -> tuple[float, float]:
-    """Return (yaw_deg, roll_deg) from a 3×3 rotation matrix.
+def _euler_from_rotation_matrix(R: np.ndarray) -> HeadPose:
+    """Return a ``HeadPose`` extracted from a 3×3 rotation matrix.
 
     Yaw   = rotation about the vertical (up) axis  → nose direction
     Roll  = rotation about the forward (camera-facing) axis → ear-over-shoulder
@@ -53,7 +51,7 @@ def _euler_from_rotation_matrix(R: np.ndarray) -> tuple[float, float]:
     yaw = math.atan2(R[1, 0], R[0, 0])
     # roll (Rx) — rotation about the forward (camera-facing) axis
     roll = math.atan2(R[2, 1], R[2, 2])
-    return math.degrees(yaw), math.degrees(roll)
+    return HeadPose(yaw=math.degrees(yaw), roll=math.degrees(roll))
 
 
 # ---------------------------------------------------------------------------
@@ -61,14 +59,15 @@ def _euler_from_rotation_matrix(R: np.ndarray) -> tuple[float, float]:
 # ---------------------------------------------------------------------------
 
 class HeadPoseDetector:
-    """Wraps MediaPipe FaceLandmarker; returns (yaw_deg, roll_deg) per frame.
+    """Wraps MediaPipe FaceLandmarker; emits a ``HeadPose`` per frame.
 
     Interface contract
     -----------------
-    detect(frame) -> Optional[tuple[yaw, roll]]
+    ``detect(frame) -> Optional[HeadPose]``
 
-    * Returns None when no face is detected.
-    * Returns (yaw_deg, roll_deg) when a face is found.
+    * Returns ``None`` when no face is detected.
+    * Returns a ``HeadPose`` when a face is found; the sign convention is
+      documented on ``HeadPose`` itself.
     * No MediaPipe types appear in the return value.
     * Thread-safe after init; the Python GIL serialises calls.
     """
@@ -86,15 +85,15 @@ class HeadPoseDetector:
         )
         self._detector = FaceLandmarker.create_from_options(options)
 
-    def detect(self, frame: np.ndarray) -> Optional[tuple[float, float]]:
+    def detect(self, frame: np.ndarray) -> Optional[HeadPose]:
         """Run head-pose estimation on a BGR frame.
 
         Args:
             frame: BGR image from OpenCV (H×W×3), uint8.
 
         Returns:
-            None if no face detected.
-            Otherwise (yaw_deg, roll_deg) using the sign convention above.
+            ``None`` if no face detected, otherwise a ``HeadPose`` carrying
+            the sign convention documented on the class.
         """
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)

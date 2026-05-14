@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 import pytest
 
+from eyes.classifier import HeadPose
 from eyes.detector import HeadPoseDetector, _euler_from_rotation_matrix
 
 
@@ -29,9 +30,9 @@ class TestEulerFromRotationMatrix:
 
     def test_identity_gives_zero_yaw_roll(self) -> None:
         R = np.eye(3)
-        yaw, roll = _euler_from_rotation_matrix(R)
-        assert abs(yaw) < 0.01
-        assert abs(roll) < 0.01
+        pose = _euler_from_rotation_matrix(R)
+        assert abs(pose.yaw) < 0.01
+        assert abs(pose.roll) < 0.01
 
     def test_positive_yaw(self) -> None:
         """Positive yaw = head turned to user's right = Rz rotation."""
@@ -41,9 +42,9 @@ class TestEulerFromRotationMatrix:
             [ math.sin(angle),  math.cos(angle), 0],
             [0,               0,              1],
         ])
-        yaw, roll = _euler_from_rotation_matrix(R)
-        assert abs(yaw - 30.0) < 0.1
-        assert abs(roll) < 0.1
+        pose = _euler_from_rotation_matrix(R)
+        assert abs(pose.yaw - 30.0) < 0.1
+        assert abs(pose.roll) < 0.1
 
     def test_negative_yaw(self) -> None:
         """Negative yaw = head turned to user's left."""
@@ -53,9 +54,9 @@ class TestEulerFromRotationMatrix:
             [ math.sin(angle),  math.cos(angle), 0],
             [0,               0,              1],
         ])
-        yaw, roll = _euler_from_rotation_matrix(R)
-        assert abs(yaw + 20.0) < 0.1
-        assert abs(roll) < 0.1
+        pose = _euler_from_rotation_matrix(R)
+        assert abs(pose.yaw + 20.0) < 0.1
+        assert abs(pose.roll) < 0.1
 
     def test_positive_roll(self) -> None:
         """Positive roll = head tilted clockwise (right ear toward right shoulder)."""
@@ -66,9 +67,9 @@ class TestEulerFromRotationMatrix:
             [0,  math.cos(angle), -math.sin(angle)],
             [0,  math.sin(angle),  math.cos(angle)],
         ])
-        yaw, roll = _euler_from_rotation_matrix(R)
-        assert abs(yaw) < 0.1
-        assert abs(roll - 15.0) < 0.1
+        pose = _euler_from_rotation_matrix(R)
+        assert abs(pose.yaw) < 0.1
+        assert abs(pose.roll - 15.0) < 0.1
 
     def test_negative_roll(self) -> None:
         """Negative roll = head tilted counter-clockwise."""
@@ -78,9 +79,9 @@ class TestEulerFromRotationMatrix:
             [0,  math.cos(angle), -math.sin(angle)],
             [0,  math.sin(angle),  math.cos(angle)],
         ])
-        yaw, roll = _euler_from_rotation_matrix(R)
-        assert abs(yaw) < 0.1
-        assert abs(roll + 10.0) < 0.1
+        pose = _euler_from_rotation_matrix(R)
+        assert abs(pose.yaw) < 0.1
+        assert abs(pose.roll + 10.0) < 0.1
 
     def test_combined_yaw_and_roll_zxy(self) -> None:
         """Combined yaw + roll built with ZXY Tait-Bryan convention.
@@ -104,9 +105,9 @@ class TestEulerFromRotationMatrix:
             [0,  math.sin(roll_r),  math.cos(roll_r)],
         ])
         R = Rz @ Rx
-        yaw_out, roll_out = _euler_from_rotation_matrix(R)
-        assert abs(yaw_out - yaw_deg) < 1.0
-        assert abs(roll_out - roll_deg) < 1.0
+        pose = _euler_from_rotation_matrix(R)
+        assert abs(pose.yaw - yaw_deg) < 1.0
+        assert abs(pose.roll - roll_deg) < 1.0
 
     def test_threshold_boundary(self) -> None:
         """At exactly the default thresholds (yaw 15°, roll 10°) the function
@@ -124,9 +125,9 @@ class TestEulerFromRotationMatrix:
             [0,  math.sin(roll_r),  math.cos(roll_r)],
         ])
         R = Rz @ Rx
-        yaw_out, roll_out = _euler_from_rotation_matrix(R)
-        assert yaw_out >= 14.0  # within 1° tolerance
-        assert roll_out >= 9.0
+        pose = _euler_from_rotation_matrix(R)
+        assert pose.yaw >= 14.0  # within 1° tolerance
+        assert pose.roll >= 9.0
 
 
 # ---------------------------------------------------------------------------
@@ -171,8 +172,8 @@ def test_detector_returns_none_on_synthetic_frame(monkeypatch) -> None:
         det_mod._instance = None
 
 
-def test_detector_return_type_is_tuple_of_floats(monkeypatch) -> None:
-    """When a face is detected the return value is (float, float)."""
+def test_detector_return_type_is_head_pose(monkeypatch) -> None:
+    """When a face is detected the return value is a HeadPose with float fields."""
 
     class MockResult:
         face_landmarks = [[0]]  # non-empty to signal "face found"
@@ -204,14 +205,12 @@ def test_detector_return_type_is_tuple_of_floats(monkeypatch) -> None:
         detector = det_mod.HeadPoseDetector()
         result = detector.detect(_synthetic_frame())
         assert result is not None
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-        yaw, roll = result
-        assert isinstance(yaw, float)
-        assert isinstance(roll, float)
+        assert isinstance(result, HeadPose)
+        assert isinstance(result.yaw, float)
+        assert isinstance(result.roll, float)
         # Identity matrix → yaw and roll should be near zero
-        assert abs(yaw) < 0.01
-        assert abs(roll) < 0.01
+        assert abs(result.yaw) < 0.01
+        assert abs(result.roll) < 0.01
     finally:
         det_mod._instance = None
 
@@ -250,8 +249,7 @@ def test_detector_yaw_sign_positive_right(monkeypatch) -> None:
         detector = det_mod.HeadPoseDetector()
         result = detector.detect(_synthetic_frame())
         assert result is not None
-        yaw, roll = result
-        assert yaw > 0  # positive yaw = head turned right
+        assert result.yaw > 0  # positive yaw = head turned right
     finally:
         det_mod._instance = None
 

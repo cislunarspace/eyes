@@ -18,3 +18,7 @@ models/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code tool artifacts
+.claude/session-files.log
+.claude/PRPs/

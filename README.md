@@ -173,8 +173,8 @@ eyes/
 | Module | Responsibility |
 |--------|----------------|
 | `camera.py` | Opens/retry/releases `cv2.VideoCapture`. Caller drives re-opening via `retry_open()`. |
-| `detector.py` | Wraps MediaPipe `FaceLandmarker` in VIDEO mode. Returns `Optional[(yaw_deg, roll_deg)]`. |
-| `classifier.py` | Pure function `classify(yaw, roll, neutral, thresholds) → PoseState`. Stateless, no side effects. |
+| `detector.py` | Wraps MediaPipe `FaceLandmarker` in VIDEO mode. Returns `Optional[HeadPose]`. |
+| `classifier.py` | Pure function `classify(pose, neutral, thresholds) → PoseState`. `pose=None` returns `NO_FACE`. |
 | `accumulator.py` | Pure state machine: off-axis streak, S4 (facing time), S5 (presence time). Driven by external dt ticks. |
 | `overlay.py` | Frameless always-on-top widget for correction prompts. Auto-dismisses after 4 seconds. |
 | `config_store.py` | Atomic YAML read/write via temp-file-then-rename. |
@@ -193,12 +193,10 @@ eyes/
 Webcam frame (BGR, uint8)
   → CameraSource.read()
   → HeadPoseDetector.detect(frame)
-    → MediaPipe FaceLandmarker (Video mode)
-    → 4×4 transformation matrix → 3×3 rotation block
-    → atan2(R[1,0], R[0,0]) → yaw_deg
-    → atan2(R[2,1], R[2,2]) → roll_deg
-    → Optional[(yaw_deg, roll_deg)]
-  → PoseClassifier.classify(yaw, roll)
+    → MediaPipe FaceLandmarker (VIDEO mode)
+    → 4×4 transformation matrix → 3×3 rotation block → euler angles
+    → Optional[HeadPose(yaw, roll)]
+  → PoseClassifier.classify(pose, neutral, thresholds)
     → compares against NeutralPose + Thresholds
     → PoseState (one of 5 states)
   → AccumulatorEngine.tick(state, dt)

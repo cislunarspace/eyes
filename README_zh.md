@@ -175,8 +175,8 @@ eyes/
 | 模块 | 职责说明 |
 | ---- | -------- |
 | `camera.py` | 负责打开/重试/释放 `cv2.VideoCapture`。由调用方通过 `retry_open()` 驱动重新连接。 |
-| `detector.py` | 封装 MediaPipe `FaceLandmarker`（VIDEO 模式）。返回 `Optional[(yaw_deg, roll_deg)]`。 |
-| `classifier.py` | 纯函数 `classify(yaw, roll, neutral, thresholds) → PoseState`。无状态，无副作用。 |
+| `detector.py` | 封装 MediaPipe `FaceLandmarker`（VIDEO 模式）。返回 `Optional[HeadPose]`。 |
+| `classifier.py` | 纯函数 `classify(pose, neutral, thresholds) → PoseState`。`pose=None` 时返回 `NO_FACE`。 |
 | `accumulator.py` | 纯状态机：偏离计时、S4（正对时间）、S5（人脸检测时间）。由外部 dt 驱动。 |
 | `overlay.py` | 无边框置顶窗口，用于显示提醒。4 秒后自动消失。 |
 | `config_store.py` | 通过临时文件再重命名的原子化 YAML 读写。 |
@@ -196,11 +196,9 @@ eyes/
   → CameraSource.read()
   → HeadPoseDetector.detect(frame)
     → MediaPipe FaceLandmarker (视频模式)
-    → 4×4 变换矩阵 → 3×3 旋转矩阵
-    → atan2(R[1,0], R[0,0]) → yaw_deg
-    → atan2(R[2,1], R[2,2]) → roll_deg
-    → Optional[(yaw_deg, roll_deg)]
-  → PoseClassifier.classify(yaw, roll)
+    → 4×4 变换矩阵 → 3×3 旋转矩阵 → 欧拉角
+    → Optional[HeadPose(yaw, roll)]
+  → PoseClassifier.classify(pose, neutral, thresholds)
     → 与 NeutralPose + Thresholds 比较
     → PoseState（五种状态之一）
   → AccumulatorEngine.tick(state, dt)

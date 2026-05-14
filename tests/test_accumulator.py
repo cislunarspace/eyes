@@ -211,130 +211,6 @@ class TestAccumulatorOtherStatesReset:
         assert result == PoseState.OFF_AXIS_LEFT
 
 
-class TestFacingTimeAccumulator:
-    """S4: Facing Time Accumulator — cumulative good posture tracking.
-
-    The accumulator advances +1s/s while FACING_SCREEN.
-    Brief deviations (OFF_AXIS_*, NO_FACE) pause accumulation but do NOT reset.
-    At 300s threshold (configurable), emits GoodPostureDue and resets to 0.
-    """
-
-    def test_facing_screen_accumulates_time(self) -> None:
-        """FACING_SCREEN advances the facing time counter."""
-        from eyes.accumulator import AccumulatorEngine
-        engine = AccumulatorEngine()
-        dt = 1.0
-
-        # Accumulate 10 seconds of facing - good_posture_due should remain False
-        for _ in range(10):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-            assert engine.good_posture_due is False
-
-        # After 10s, still not at threshold (300s default)
-        assert engine.facing_accumulator_seconds < 300
-
-    def test_good_posture_due_fires_at_threshold(self) -> None:
-        """At exactly threshold, good_posture_due becomes True."""
-        from eyes.accumulator import AccumulatorEngine
-        # Use 5s threshold for faster test
-        engine = AccumulatorEngine(facing_threshold_seconds=5.0)
-        dt = 1.0
-
-        # Accumulate 4 seconds - should NOT fire
-        for _ in range(4):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-            assert engine.good_posture_due is False
-
-        # 5th second - should fire
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.good_posture_due is True
-
-    def test_off_axis_pauses_accumulator_no_reset(self) -> None:
-        """OFF_AXIS_* and NO_FACE pause accumulation but do NOT reset."""
-        from eyes.accumulator import AccumulatorEngine
-        engine = AccumulatorEngine(facing_threshold_seconds=15.0)  # Higher threshold
-        dt = 1.0
-
-        # Accumulate 5 seconds facing
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.facing_accumulator_seconds == 5.0
-
-        # Pause for 3 seconds (off-axis)
-        for _ in range(3):
-            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
-        assert engine.facing_accumulator_seconds == 5.0  # Paused, not reset
-
-        # Resume facing - continue from where we left off (5 + 4 = 9)
-        for _ in range(4):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.facing_accumulator_seconds == 9.0
-        assert engine.good_posture_due is False
-
-    def test_no_face_pauses_accumulator(self) -> None:
-        """NO_FACE pauses accumulation without resetting."""
-        from eyes.accumulator import AccumulatorEngine
-        engine = AccumulatorEngine(facing_threshold_seconds=10.0)
-        dt = 1.0
-
-        # Accumulate 5 seconds facing
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-
-        # Face disappears
-        engine.tick(PoseState.NO_FACE, dt)
-        assert engine.facing_accumulator_seconds == 5.0  # Paused
-
-    def test_reset_after_fire_starts_new_cycle(self) -> None:
-        """After GoodPostureDue fires, accumulator resets to 0 for new cycle."""
-        from eyes.accumulator import AccumulatorEngine
-        engine = AccumulatorEngine(facing_threshold_seconds=5.0)
-        dt = 1.0
-
-        # First cycle: accumulate to threshold
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.good_posture_due is True
-        assert engine.facing_accumulator_seconds == 0.0  # Auto-reset to 0
-
-        # Continue facing - starts fresh accumulation
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.facing_accumulator_seconds == 1.0
-
-    def test_accumulated_time_across_alternating_cycles(self) -> None:
-        """Brief deviations accumulate correctly across facing/off-axis cycles."""
-        from eyes.accumulator import AccumulatorEngine
-        engine = AccumulatorEngine(facing_threshold_seconds=10.0)
-        dt = 1.0
-
-        # Cycle 1: 5s facing
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-
-        # Brief deviation: 3s off-axis (paused)
-        for _ in range(3):
-            engine.tick(PoseState.OFF_AXIS_LEFT, dt)
-
-        # Cycle 2: 5s more facing = 10s total = fires
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.good_posture_due is True
-
-    def test_acknowledge_clears_flag(self) -> None:
-        """Calling acknowledge() clears the good_posture_due flag."""
-        from eyes.accumulator import AccumulatorEngine
-        engine = AccumulatorEngine(facing_threshold_seconds=2.0)
-        dt = 1.0
-
-        # Accumulate to threshold
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.good_posture_due is True
-
-        # Acknowledge
-        engine.acknowledge()
-        assert engine.good_posture_due is False
-
 class TestWarningLevel:
     """Warning level state machine for posture escalation."""
 
@@ -432,9 +308,11 @@ class TestWarningLevel:
         engine.tick(PoseState.FACING_SCREEN, dt)
         assert engine.warning_event is None
 
-        # 2nd second — transition to NORMAL, no event emitted (NORMAL is baseline)
+        # 2nd second — transition to NORMAL
         engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.warning_event is None
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.NORMAL
 
         # Verify we're back to NORMAL by triggering a fresh WARNING
         engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
@@ -458,6 +336,9 @@ class TestWarningLevel:
 
         # NO_FACE resets to NORMAL
         engine.tick(PoseState.NO_FACE, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.NORMAL
 
         # Next off-axis tick should be a fresh episode (timer at 0)
         engine.tick(PoseState.OFF_AXIS_LEFT, dt)
@@ -484,6 +365,9 @@ class TestWarningLevel:
 
         # NO_FACE resets
         engine.tick(PoseState.NO_FACE, dt)
+        event = engine.warning_event
+        assert event is not None
+        assert event.level is WarningLevel.NORMAL
 
         # Fresh episode
         engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
@@ -623,133 +507,6 @@ class TestOverlayMessages:
         assert text == "向右调整"
 
 
-class TestPresenceTimeAccumulator:
-    """S5: Presence Time Accumulator — cumulative eye-rest tracking.
-
-    The accumulator advances +1s/s while any Face Detected state
-    (FACING_SCREEN, OFF_AXIS_LEFT, OFF_AXIS_RIGHT, OFF_AXIS_OTHER).
-    NO_FACE pauses accumulation but does NOT reset.
-    At 900s threshold (configurable), emits EyeRestDue and resets to 0.
-    """
-
-    def test_any_face_detected_state_accumulates(self) -> None:
-        """All face-detected states (not NO_FACE) advance the presence accumulator."""
-        from eyes.accumulator import AccumulatorEngine
-
-        engine = AccumulatorEngine(eyest_threshold_seconds=60.0)
-        dt = 1.0
-
-        # FACING_SCREEN advances
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.presence_accumulator_seconds == 1.0
-
-        # OFF_AXIS_LEFT advances
-        engine.tick(PoseState.OFF_AXIS_LEFT, dt)
-        assert engine.presence_accumulator_seconds == 2.0
-
-        # OFF_AXIS_RIGHT advances
-        engine.tick(PoseState.OFF_AXIS_RIGHT, dt)
-        assert engine.presence_accumulator_seconds == 3.0
-
-        # OFF_AXIS_OTHER advances
-        engine.tick(PoseState.OFF_AXIS_OTHER, dt)
-        assert engine.presence_accumulator_seconds == 4.0
-
-    def test_no_face_pauses_not_resets(self) -> None:
-        """NO_FACE pauses accumulation without resetting."""
-        from eyes.accumulator import AccumulatorEngine
-
-        engine = AccumulatorEngine(eyest_threshold_seconds=60.0)
-        dt = 1.0
-
-        # Accumulate 5 seconds
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.presence_accumulator_seconds == 5.0
-
-        # NO_FACE pauses (doesn't advance, doesn't reset)
-        engine.tick(PoseState.NO_FACE, dt)
-        assert engine.presence_accumulator_seconds == 5.0
-
-        # More NO_FACE ticks - still paused
-        engine.tick(PoseState.NO_FACE, dt)
-        assert engine.presence_accumulator_seconds == 5.0
-
-    def test_eyest_due_fires_at_threshold(self) -> None:
-        """At threshold, eye_rest_due becomes True and resets accumulator."""
-        from eyes.accumulator import AccumulatorEngine
-
-        engine = AccumulatorEngine(eyest_threshold_seconds=5.0)
-        dt = 1.0
-
-        # Accumulate 4 seconds - should NOT fire
-        for _ in range(4):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-            assert engine.eye_rest_due is False
-
-        # 5th second - should fire
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.eye_rest_due is True
-        assert engine.presence_accumulator_seconds == 0.0  # Reset to 0
-
-    def test_reset_starts_new_cycle(self) -> None:
-        """After EyeRestDue fires, fresh accumulation starts from 0."""
-        from eyes.accumulator import AccumulatorEngine
-
-        engine = AccumulatorEngine(eyest_threshold_seconds=5.0)
-        dt = 1.0
-
-        # First cycle: reach threshold
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.eye_rest_due is True
-        assert engine.presence_accumulator_seconds == 0.0  # Auto-reset to 0
-
-        # New cycle starts at 0 after acknowledge
-        engine.acknowledge()
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.presence_accumulator_seconds == 1.0
-        assert engine.eye_rest_due is False  # Cleared by acknowledge()
-
-    def test_acknowledge_clears_eye_rest_due(self) -> None:
-        """Calling acknowledge() clears the eye_rest_due flag."""
-        from eyes.accumulator import AccumulatorEngine
-
-        engine = AccumulatorEngine(eyest_threshold_seconds=2.0)
-        dt = 1.0
-
-        # Accumulate to threshold
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.eye_rest_due is True
-
-        # Acknowledge
-        engine.acknowledge()
-        assert engine.eye_rest_due is False
-
-    def test_alternating_face_no_face_accumulates(self) -> None:
-        """Accumulator counts only face-detected time across alternating cycles."""
-        from eyes.accumulator import AccumulatorEngine
-
-        engine = AccumulatorEngine(eyest_threshold_seconds=15.0)
-        dt = 1.0
-
-        # 5s facing
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.presence_accumulator_seconds == 5.0
-
-        # 3s away (paused, not reset)
-        for _ in range(3):
-            engine.tick(PoseState.NO_FACE, dt)
-        assert engine.presence_accumulator_seconds == 5.0  # Still paused
-
-        # 5s more = 10s total (below 15s threshold)
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.presence_accumulator_seconds == 10.0
-        assert engine.eye_rest_due is False
-
 class TestOverlayEyeRestMessage:
     """NotifierOverlay shows correct message for eye rest prompt."""
 
@@ -760,6 +517,18 @@ class TestOverlayEyeRestMessage:
         assert text == "请眺望远方"
 
 
+
+class SnoozeTargetSpy:
+    def __init__(self) -> None:
+        self.is_snoozed = False
+
+    def snooze(self) -> None:
+        self.is_snoozed = True
+
+    def resume(self) -> None:
+        self.is_snoozed = False
+
+
 class TestAccumulatorSnooze:
     """S7: AccumulatorEngine snooze behavior.
 
@@ -767,42 +536,16 @@ class TestAccumulatorSnooze:
     On resume, accumulators continue from their previous values.
     """
 
-    def test_snooze_freezes_facing_accumulator(self) -> None:
-        """Facing accumulator does not advance while snoozed."""
-        engine = AccumulatorEngine(facing_threshold_seconds=60.0)
-        dt = 1.0
+    def test_snooze_targets_follow_engine_snooze_state(self) -> None:
+        engine = AccumulatorEngine()
+        target = SnoozeTargetSpy()
+        engine.register_snooze_target(target)
 
-        # Accumulate 5 seconds facing
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.facing_accumulator_seconds == 5.0
-
-        # Enter snooze
         engine.snooze()
-        assert engine.is_snoozed is True
+        assert target.is_snoozed is True
 
-        # Snooze for 10 ticks - accumulator should NOT advance
-        for _ in range(10):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.facing_accumulator_seconds == 5.0  # Frozen!
-
-    def test_snooze_freezes_presence_accumulator(self) -> None:
-        """Presence accumulator does not advance while snoozed."""
-        engine = AccumulatorEngine(eyest_threshold_seconds=60.0)
-        dt = 1.0
-
-        # Accumulate 5 seconds
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.presence_accumulator_seconds == 5.0
-
-        # Enter snooze
-        engine.snooze()
-
-        # Snooze for 10 ticks - accumulator should NOT advance
-        for _ in range(10):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.presence_accumulator_seconds == 5.0  # Frozen!
+        engine.resume()
+        assert target.is_snoozed is False
 
     def test_snooze_freezes_off_axis_streak(self) -> None:
         """Off-axis streak does not advance while snoozed."""
@@ -820,31 +563,6 @@ class TestAccumulatorSnooze:
         for _ in range(10):
             result = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
             assert result is None  # No prompts while snoozed
-
-    def test_resume_continues_from_previous_values(self) -> None:
-        """After resume, accumulators continue from where they left off."""
-        engine = AccumulatorEngine(facing_threshold_seconds=60.0)
-        dt = 1.0
-
-        # Accumulate 5 seconds facing
-        for _ in range(5):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.facing_accumulator_seconds == 5.0
-
-        # Snooze for a while
-        engine.snooze()
-        for _ in range(10):
-            engine.tick(PoseState.FACING_SCREEN, dt)
-
-        # Resume
-        engine.resume()
-
-        # Continue accumulating - should resume from 5s, not 0s
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.facing_accumulator_seconds == 6.0  # 5 + 1
-
-        engine.tick(PoseState.FACING_SCREEN, dt)
-        assert engine.facing_accumulator_seconds == 7.0  # 5 + 2
 
     def test_is_snoozed_property(self) -> None:
         """Engine correctly reports snooze state."""

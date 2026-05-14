@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
         # Warning banner (hidden by default, overlaid at bottom of video area)
         self._warning_banner = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
         self._warning_banner.setVisible(False)
+        self._last_pose_state: PoseState = PoseState.NO_FACE
         self._active_warning_level = WarningLevel.NORMAL
         self._corrected_timer = QTimer(self)
         self._corrected_timer.setSingleShot(True)
@@ -108,12 +109,14 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Update the readout label and badge from the tick loop."""
         if yaw is None or roll is None:
+            self._last_pose_state = PoseState.NO_FACE
             self._readout_label.setText("yaw: —   roll: —")
             self._badge_label.setText(PoseState.NO_FACE.value)
             self._apply_badge_style(PoseState.NO_FACE)
         else:
             self._readout_label.setText(f"yaw: {yaw:+.1f}°   roll: {roll:+.1f}°")
             if state is not None:
+                self._last_pose_state = state
                 self._badge_label.setText(state.value)
                 if self._active_warning_level == WarningLevel.NORMAL:
                     self._apply_badge_style(state)
@@ -147,6 +150,7 @@ class MainWindow(QMainWindow):
             return
         self._active_warning_level = WarningLevel.NORMAL
         self._warning_banner.setVisible(False)
+        self._apply_badge_style(self._last_pose_state)
 
     def set_warning_level(self, event: WarningLevelEvent) -> None:
         """Drive the warning banner through its full lifecycle.
@@ -165,6 +169,7 @@ class MainWindow(QMainWindow):
             self._active_warning_level = WarningLevel.NORMAL
             self._corrected_timer.stop()
             self._warning_banner.setVisible(False)
+            self._apply_badge_style(self._last_pose_state)
             return
 
         if level in (WarningLevel.WARNING, WarningLevel.SEVERE):
