@@ -303,13 +303,12 @@ class AppController:
         else:
             self._window.set_state(current_yaw, current_roll, current_state)
 
-        # Collect calibration samples if settings dialog is open and calibrating
-        if self._settings_dialog is not None and current_yaw is not None and current_roll is not None:
-            self._settings_dialog.add_calibration_sample(current_yaw, current_roll)
-
-        # Push real-time pose to settings dialog for display
+        # Route pose updates to the settings dialog (if open) so it can update
+        # its real-time display and feed any active calibration session.
         if self._settings_dialog is not None:
             self._settings_dialog.update_current_pose(current_yaw, current_roll)
+            if current_yaw is not None and current_roll is not None:
+                self._settings_dialog.add_calibration_sample(current_yaw, current_roll)
 
         # Log state changes
         self._log_state_change(current_state)

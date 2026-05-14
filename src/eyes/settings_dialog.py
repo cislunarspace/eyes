@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from eyes.calibration import PoseSample, compute_median_pose
+from eyes.calibration import CalibrationSession
 from eyes.config_store import ConfigStore
 from eyes.i18n import t
 
@@ -62,9 +62,10 @@ class SettingsDialog(QDialog):
         self._original_config = config_store.load()
         # Track pending changes separately since AppConfig is frozen
         self._pending_changes: dict[str, Any] = {}
-        self._calibration_samples: list[PoseSample] = []
+        # Session owns samples + countdown; this dialog only drives the QTimer
+        # and observes session state for UI updates.
+        self._calibration_session = CalibrationSession(duration_seconds=5.0)
         self._calibration_timer: QTimer | None = None
-        self._calibration_countdown = 5.0
 
         self.setWindowTitle(f"Eyes — {t('settings.title')}")
         self.setMinimumWidth(400)
@@ -273,11 +274,12 @@ class SettingsDialog(QDialog):
 
     def _start_calibration(self) -> None:
         """Start 5-second calibration countdown."""
-        self._calibration_samples = []
-        self._calibration_countdown = 5.0
+        self._calibration_session.start()
         self._calibrate_button.setEnabled(False)
         self._countdown_label.setText(
-            t("calibration.in_progress").format(seconds=int(self._calibration_countdown))
+            t("calibration.in_progress").format(
+                seconds=int(self._calibration_session.countdown_seconds)
+            )
         )
         self.calibration_started.emit()
 
@@ -287,49 +289,51 @@ class SettingsDialog(QDialog):
         self._calibration_timer.start(100)  # 10 Hz sampling
 
     def _calibration_tick(self) -> None:
-        """Process one calibration tick."""
-        self._calibration_countdown -= 0.1
+        """Process one calibration tick; advance the session and refresh UI."""
+        self._calibration_session.tick(0.1)
 
-        if self._calibration_countdown <= 0:
+        if not self._calibration_session.is_active:
             self._finish_calibration()
             return
 
         self._countdown_label.setText(
-            t("calibration.in_progress").format(seconds=int(self._calibration_countdown) + 1)
+            t("calibration.in_progress").format(
+                seconds=int(self._calibration_session.countdown_seconds) + 1
+            )
         )
 
     def _finish_calibration(self) -> None:
-        """Finish calibration and compute median."""
+        """Finish calibration: stop timer and publish the session's result."""
         if self._calibration_timer:
             self._calibration_timer.stop()
             self._calibration_timer = None
 
-        if self._calibration_samples:
-            median = compute_median_pose(self._calibration_samples)
-            self._set_value("neutral_yaw", median.yaw)
-            self._set_value("neutral_roll", median.roll)
+        result = self._calibration_session.result()
+        if result is not None:
+            self._set_value("neutral_yaw", result.yaw)
+            self._set_value("neutral_roll", result.roll)
             self._neutral_pose_label.setText(
-                f"({median.yaw:+.1f}°, {median.roll:+.1f}°)"
+                f"({result.yaw:+.1f}°, {result.roll:+.1f}°)"
             )
-            self.calibration_completed.emit(median.yaw, median.roll)
+            self.calibration_completed.emit(result.yaw, result.roll)
 
         self._calibrate_button.setEnabled(True)
         self._countdown_label.setText(t("calibration.complete"))
 
     def add_calibration_sample(self, yaw: float, roll: float) -> bool:
-        """Add a pose sample during calibration.
+        """Forward a pose sample to the active calibration session.
 
         Called by AppController during calibration.
-        Returns True if calibration is still in progress.
+        Returns True if the session was active and accepted the sample.
         """
-        if self.is_calibrating() and self._calibration_samples is not None:
-            self._calibration_samples.append(PoseSample(yaw=yaw, roll=roll))
-            return True
-        return False
+        if not self._calibration_session.is_active:
+            return False
+        self._calibration_session.feed(yaw, roll)
+        return True
 
     def is_calibrating(self) -> bool:
         """Return True if calibration is in progress."""
-        return self._calibration_timer is not None and self._calibration_timer.isActive()
+        return self._calibration_session.is_active
 
     def _open_data_directory(self) -> None:
         """Open the user data directory in file explorer."""

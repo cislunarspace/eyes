@@ -108,3 +108,149 @@ class TestCalibrationMedian:
         assert isinstance(result, PoseSample)
         assert hasattr(result, "yaw")
         assert hasattr(result, "roll")
+
+
+class TestCalibrationSessionLifecycle:
+    """Unit tests for CalibrationSession — Qt-free lifecycle behavior.
+
+    Behaviors verified through the public interface only:
+        - Session is inactive until started.
+        - start() activates the session and seeds the countdown.
+        - feed() collects samples only while active.
+        - tick(dt) decrements the countdown and finishes the session at 0.
+        - result() yields the median pose once finished, None otherwise.
+    """
+
+    def test_new_session_is_inactive(self) -> None:
+        """A freshly constructed session is not yet collecting samples."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=5.0)
+        assert session.is_active is False
+        assert session.sample_count == 0
+        assert session.result() is None
+
+    def test_start_activates_session_and_seeds_countdown(self) -> None:
+        """start() flips is_active and exposes the full duration as countdown."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=5.0)
+        session.start()
+
+        assert session.is_active is True
+        assert session.countdown_seconds == pytest.approx(5.0)
+
+    def test_feed_collects_samples_only_while_active(self) -> None:
+        """feed() records samples while active, is a no-op before start()."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=5.0)
+
+        # Inactive: feed is ignored.
+        session.feed(yaw=1.0, roll=2.0)
+        assert session.sample_count == 0
+
+        # Active: feed accumulates.
+        session.start()
+        session.feed(yaw=1.0, roll=2.0)
+        session.feed(yaw=3.0, roll=4.0)
+        assert session.sample_count == 2
+
+    def test_tick_decrements_countdown_while_active(self) -> None:
+        """tick(dt) shrinks countdown_seconds by dt without finishing prematurely."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=5.0)
+        session.start()
+        session.tick(0.1)
+        session.tick(0.4)
+
+        assert session.is_active is True
+        assert session.countdown_seconds == pytest.approx(4.5)
+
+    def test_session_finishes_when_countdown_reaches_zero(self) -> None:
+        """Once the countdown drains, the session deactivates and is_active is False."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=1.0)
+        session.start()
+        session.feed(yaw=2.0, roll=1.0)
+
+        # Drain the full duration in 10 ticks of 0.1s each.
+        for _ in range(10):
+            session.tick(0.1)
+
+        assert session.is_active is False
+        assert session.countdown_seconds <= 0
+
+    def test_result_returns_median_of_fed_samples_after_finish(self) -> None:
+        """After the session finishes, result() exposes the median pose."""
+        from eyes.calibration import CalibrationResult, CalibrationSession
+
+        session = CalibrationSession(duration_seconds=1.0)
+        session.start()
+        # Sorted by yaw: (1,0), (3,5), (5,10) -> median is (3,5)
+        session.feed(yaw=1.0, roll=0.0)
+        session.feed(yaw=5.0, roll=10.0)
+        session.feed(yaw=3.0, roll=5.0)
+
+        for _ in range(10):
+            session.tick(0.1)
+
+        result = session.result()
+        assert isinstance(result, CalibrationResult)
+        assert result.yaw == pytest.approx(3.0)
+        assert result.roll == pytest.approx(5.0)
+        assert result.sample_count == 3
+
+    def test_result_is_none_when_no_samples_were_fed(self) -> None:
+        """A session that finishes without samples yields no result."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=1.0)
+        session.start()
+        for _ in range(10):
+            session.tick(0.1)
+
+        assert session.is_active is False
+        assert session.result() is None
+
+    def test_result_is_none_while_session_still_active(self) -> None:
+        """result() must not leak a partial median while sampling is ongoing."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=5.0)
+        session.start()
+        session.feed(yaw=3.0, roll=5.0)
+        session.tick(0.1)
+
+        assert session.is_active is True
+        assert session.result() is None
+
+    def test_tick_is_noop_before_start(self) -> None:
+        """Calling tick() on an unstarted session does not change state."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=5.0)
+        session.tick(0.1)
+
+        assert session.is_active is False
+        assert session.countdown_seconds == pytest.approx(0.0)
+        assert session.result() is None
+
+    def test_restart_clears_previous_samples_and_countdown(self) -> None:
+        """A second start() begins a clean session, discarding earlier samples."""
+        from eyes.calibration import CalibrationSession
+
+        session = CalibrationSession(duration_seconds=1.0)
+        session.start()
+        session.feed(yaw=42.0, roll=42.0)
+        for _ in range(10):
+            session.tick(0.1)
+        assert session.result() is not None  # previous run finished
+
+        session.start()
+        assert session.is_active is True
+        assert session.sample_count == 0
+        assert session.countdown_seconds == pytest.approx(1.0)
+        assert session.result() is None
