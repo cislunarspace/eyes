@@ -42,6 +42,7 @@ class NotifierOverlay(QWidget):
         self._move_to_active_screen()
 
     def _setup_ui(self) -> None:
+        """Create the overlay layout with a large arrow label and a text label below it."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(8)

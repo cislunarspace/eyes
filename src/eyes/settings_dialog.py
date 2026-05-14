@@ -76,6 +76,7 @@ class SettingsDialog(QDialog):
         self._pending_changes[key] = value
 
     def _setup_ui(self) -> None:
+        """Build the settings form: sliders, calibration controls, camera selector, and toggles."""
         main_layout = QVBoxLayout(self)
         self._form_layout = QFormLayout()
         main_layout.addLayout(self._form_layout)

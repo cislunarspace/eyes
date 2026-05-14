@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
         # Warning banner (hidden by default, overlaid at bottom of video area)
         self._warning_banner = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
         self._warning_banner.setVisible(False)
+        self._active_warning_level = WarningLevel.NORMAL
         self._corrected_timer = QTimer(self)
         self._corrected_timer.setSingleShot(True)
         self._corrected_timer.setInterval(2000)
@@ -84,6 +85,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._readout_label)
 
     def _apply_badge_style(self, state: PoseState) -> None:
+        """Apply colour scheme for the pose-state badge based on current state."""
         bg, fg = _BADGE_COLORS.get(state, ("#1a1a1a", "#888888"))
         self._badge_label.setStyleSheet(
             f"background-color: {bg}; color: {fg}; "
@@ -113,7 +115,8 @@ class MainWindow(QMainWindow):
             self._readout_label.setText(f"yaw: {yaw:+.1f}°   roll: {roll:+.1f}°")
             if state is not None:
                 self._badge_label.setText(state.value)
-                self._apply_badge_style(state)
+                if self._active_warning_level == WarningLevel.NORMAL:
+                    self._apply_badge_style(state)
 
     def update_frame(self, frame: Optional[np.ndarray]) -> None:
         """Display a BGR frame from OpenCV as a QPixmap on the video label."""
@@ -135,15 +138,37 @@ class MainWindow(QMainWindow):
         event.ignore()
 
     def _hide_warning_banner(self) -> None:
+        """Dismiss the banner only when the level is still CORRECTED.
+
+        Guards against a stale timer firing after the level has already
+        escalated back to WARNING or SEVERE.
+        """
+        if self._active_warning_level != WarningLevel.CORRECTED:
+            return
+        self._active_warning_level = WarningLevel.NORMAL
         self._warning_banner.setVisible(False)
 
     def set_warning_level(self, event: WarningLevelEvent) -> None:
+        """Drive the warning banner through its full lifecycle.
+
+        NORMAL  — hides the banner and stops any pending corrected timer.
+        WARNING — shows a yellow banner with direction hint.
+        SEVERE  — shows a red banner with direction hint.
+        CORRECTED — shows a green "good posture" banner, then auto-hides
+                    after 2 s via ``_hide_warning_banner``.
+
+        The badge label colour is also updated to match the banner.
+        """
         level, direction = event.level, event.direction
 
         if level == WarningLevel.NORMAL:
+            self._active_warning_level = WarningLevel.NORMAL
             self._corrected_timer.stop()
             self._warning_banner.setVisible(False)
             return
+
+        if level in (WarningLevel.WARNING, WarningLevel.SEVERE):
+            self._corrected_timer.stop()
 
         if level == WarningLevel.WARNING:
             bg = "#FFD700"
@@ -162,6 +187,7 @@ class MainWindow(QMainWindow):
         else:
             return
 
+        self._active_warning_level = level
         self._warning_banner.setText(text)
         self._warning_banner.setStyleSheet(
             f"background-color: {bg}; color: {fg}; "
