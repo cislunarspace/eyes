@@ -53,6 +53,14 @@ class TestActiveIcon:
         color = _pixel_color(pm, cx, cy)
         assert color == PUPIL_COLOR
 
+    def test_center_pixel_is_white_in_dark_mode(self, qtbot) -> None:
+        icon = create_eye_icon(TrayIconState.ACTIVE, dark_mode=True)
+        pm = icon.pixmap(48)
+        dpr = pm.devicePixelRatio()
+        cx = int(pm.width() / dpr / 2 * dpr)
+        cy = int(pm.height() / dpr / 2 * dpr)
+        assert _pixel_color(pm, cx, cy) == QColor("#FFFFFF")
+
 
 class TestPausedIcon:
     """PAUSED state: almond shape with pupil shifted right of center."""
@@ -69,6 +77,15 @@ class TestPausedIcon:
         offset_x = int(cx + pm.width() / dpr * 0.15 * dpr)
         assert _pixel_color(pm, offset_x, cy) == PUPIL_COLOR
 
+    def test_pupil_is_white_in_dark_mode(self, qtbot) -> None:
+        icon = create_eye_icon(TrayIconState.PAUSED, dark_mode=True)
+        pm = icon.pixmap(48)
+        dpr = pm.devicePixelRatio()
+        cx = int(pm.width() / dpr / 2 * dpr)
+        cy = int(pm.height() / dpr / 2 * dpr)
+        offset_x = int(cx + pm.width() / dpr * 0.15 * dpr)
+        assert _pixel_color(pm, offset_x, cy) == QColor("#FFFFFF")
+
 
 class TestUnavailableIcon:
     """UNAVAILABLE state: almond outline with horizontal line, no pupil."""
@@ -82,3 +99,12 @@ class TestUnavailableIcon:
         # Pixel above center: a pupil circle would be here, but a line wouldn't
         above_y = cy - int(pm.height() / dpr * 0.06 * dpr)
         assert _pixel_color(pm, cx, above_y) != PUPIL_COLOR
+
+    def test_line_is_white_in_dark_mode(self, qtbot) -> None:
+        icon = create_eye_icon(TrayIconState.UNAVAILABLE, dark_mode=True)
+        pm = icon.pixmap(48)
+        dpr = pm.devicePixelRatio()
+        cx = int(pm.width() / dpr / 2 * dpr)
+        cy = int(pm.height() / dpr / 2 * dpr)
+        # Center pixel sits on the horizontal line
+        assert _pixel_color(pm, cx, cy) == QColor("#FFFFFF")
