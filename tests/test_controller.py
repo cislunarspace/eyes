@@ -20,6 +20,19 @@ from eyes.sense_loop import (
 from eyes.types import AppEventKind, WarningLevel, WarningLevelEvent
 
 
+class TestShowWindowSignal:
+    """Verify AppController connects tray.show_window_requested to window."""
+
+    def test_show_window_requested_shows_and_activates_window(self) -> None:
+        controller = object.__new__(AppController)
+        controller._window = MagicMock()
+        controller._tray = MagicMock()
+        controller._on_show_window_requested()
+        controller._window.show.assert_called_once()
+        controller._window.raise_.assert_called_once()
+        controller._window.activateWindow.assert_called_once()
+
+
 class TestMainWindowAsPureView:
     """Verify MainWindow is a pure view with no hardware resource ownership."""
 

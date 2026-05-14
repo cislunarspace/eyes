@@ -21,6 +21,8 @@ class TrayController(QSystemTrayIcon):
             Emitted when user clicks Resume.
         settings_requested()
             Emitted when user clicks Open Settings.
+        show_window_requested()
+            Emitted on tray left-click or "显示窗口" menu item.
         quit_requested()
             Emitted when user clicks Quit.
     """
@@ -29,6 +31,7 @@ class TrayController(QSystemTrayIcon):
     resume_requested = Signal()
     settings_requested = Signal()
     quit_requested = Signal()
+    show_window_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -36,10 +39,18 @@ class TrayController(QSystemTrayIcon):
         self._create_menu()
         self.setContextMenu(self._menu)
         self._set_icon()
+        self.setToolTip(self._TOOLTIP_TEXT[self._state])
+        self.activated.connect(self._on_activated)
 
     def _create_menu(self) -> None:
         """Build the tray context menu."""
         self._menu = QMenu()
+
+        show_window_action = QAction("显示窗口", self._menu)
+        show_window_action.triggered.connect(self.show_window_requested.emit)
+        self._menu.addAction(show_window_action)
+
+        self._menu.addSeparator()
 
         # Pause submenu items
         pause_30_action = QAction("Pause 30 minutes", self._menu)
@@ -85,10 +96,21 @@ class TrayController(QSystemTrayIcon):
         """Current tray icon state."""
         return self._state
 
+    def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.show_window_requested.emit()
+
+    _TOOLTIP_TEXT: dict[TrayIconState, str] = {
+        TrayIconState.ACTIVE: "Eyes — 监控中",
+        TrayIconState.PAUSED: "Eyes — 已暂停",
+        TrayIconState.UNAVAILABLE: "Eyes — 摄像头不可用",
+    }
+
     def set_state(self, state: TrayIconState) -> None:
         """Change tray icon state and update menu accordingly."""
         self._state = state
         self._set_icon()
+        self.setToolTip(self._TOOLTIP_TEXT[state])
 
         # Update resume action enabled state
         self._resume_action.setEnabled(state == TrayIconState.PAUSED)

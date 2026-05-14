@@ -86,6 +86,7 @@ class AppController:
 
         # Tray controller
         self._tray = TrayController()
+        self._tray.show_window_requested.connect(self._on_show_window_requested)
         self._tray.settings_requested.connect(self._on_settings_requested)
         self._tray.quit_requested.connect(self._on_quit_requested)
 
@@ -126,6 +127,12 @@ class AppController:
         """Handle resume request from tray menu."""
         self._snooze_manager.resume()
         self._event_log.append(AppEventKind.SNOOZE_END)
+
+    def _on_show_window_requested(self) -> None:
+        """Handle show-window request from tray left-click or menu item."""
+        self._window.show()
+        self._window.raise_()
+        self._window.activateWindow()
 
     def _on_settings_requested(self) -> None:
         """Handle settings request from tray menu - show settings dialog."""
