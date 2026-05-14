@@ -6,18 +6,18 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from .classifier import PoseState
+from .i18n import t
 
-# Message and arrow mapping
-_MESSAGES: dict[PoseState, tuple[str, str]] = {
-    PoseState.OFF_AXIS_LEFT: ("←", "向左调整"),
-    PoseState.OFF_AXIS_RIGHT: ("→", "向右调整"),
+# Arrow mapping (language-independent symbols)
+_ARROWS: dict[PoseState, str] = {
+    PoseState.OFF_AXIS_LEFT: "←",
+    PoseState.OFF_AXIS_RIGHT: "→",
 }
 
-# Special event messages (not tied to PoseState)
-_EVENT_MESSAGES: dict[str, tuple[str, str]] = {
-    "GOOD_POSTURE": ("✓", "当前姿势良好"),
-    "EYE_REST": ("👀", "请眺望远方"),
-    "CORRECTED": ("✓", "姿势良好"),
+_EVENT_ARROWS: dict[str, str] = {
+    "GOOD_POSTURE": "✓",
+    "EYE_REST": "👀",
+    "CORRECTED": "✓",
 }
 
 _AUTO_DISMISS_MS = 4000
@@ -27,7 +27,7 @@ _CORRECTED_DISMISS_MS = 1500
 class NotifierOverlay(QWidget):
     """Frameless, always-on-top notification window for corrective prompts.
 
-    Shows directional arrow and Chinese text for off-axis corrections.
+    Shows directional arrow and translated text for off-axis corrections.
     Auto-dismisses after a few seconds.
     """
 
@@ -82,14 +82,30 @@ class NotifierOverlay(QWidget):
         y = geo.y() + geo.height() - self.height() - 24
         self.move(x, y)
 
+    @staticmethod
+    def _correction_text(direction: PoseState) -> str:
+        mapping = {
+            PoseState.OFF_AXIS_LEFT: t("overlay.adjust_left"),
+            PoseState.OFF_AXIS_RIGHT: t("overlay.adjust_right"),
+        }
+        return mapping[direction]
+
+    @staticmethod
+    def _event_text(event_type: str) -> str:
+        mapping = {
+            "GOOD_POSTURE": t("overlay.good_posture"),
+            "EYE_REST": t("overlay.eye_rest"),
+            "CORRECTED": t("overlay.corrected"),
+        }
+        return mapping[event_type]
+
     def show_correction(self, direction: PoseState) -> None:
         """Show correction prompt for the given direction."""
-        if direction not in _MESSAGES:
+        if direction not in _ARROWS:
             return
 
-        arrow, text = _MESSAGES[direction]
-        self._arrow_label.setText(arrow)
-        self._text_label.setText(text)
+        self._arrow_label.setText(_ARROWS[direction])
+        self._text_label.setText(self._correction_text(direction))
 
         self._move_to_active_screen()
         self.show()
@@ -97,9 +113,8 @@ class NotifierOverlay(QWidget):
 
     def show_good_posture(self) -> None:
         """Show good posture encouragement."""
-        arrow, text = _EVENT_MESSAGES["GOOD_POSTURE"]
-        self._arrow_label.setText(arrow)
-        self._text_label.setText(text)
+        self._arrow_label.setText(_EVENT_ARROWS["GOOD_POSTURE"])
+        self._text_label.setText(self._event_text("GOOD_POSTURE"))
 
         self._move_to_active_screen()
         self.show()
@@ -109,9 +124,8 @@ class NotifierOverlay(QWidget):
 
     def show_eye_rest(self) -> None:
         """Show eye rest reminder."""
-        arrow, text = _EVENT_MESSAGES["EYE_REST"]
-        self._arrow_label.setText(arrow)
-        self._text_label.setText(text)
+        self._arrow_label.setText(_EVENT_ARROWS["EYE_REST"])
+        self._text_label.setText(self._event_text("EYE_REST"))
 
         self._move_to_active_screen()
         self.show()
@@ -121,9 +135,8 @@ class NotifierOverlay(QWidget):
 
     def show_corrected(self) -> None:
         """Show posture corrected feedback, auto-dismisses after 1.5 seconds."""
-        arrow, text = _EVENT_MESSAGES["CORRECTED"]
-        self._arrow_label.setText(arrow)
-        self._text_label.setText(text)
+        self._arrow_label.setText(_EVENT_ARROWS["CORRECTED"])
+        self._text_label.setText(self._event_text("CORRECTED"))
 
         self._move_to_active_screen()
         self.show()
@@ -137,4 +150,9 @@ class NotifierOverlay(QWidget):
         super().hide()
 
     def refresh_language(self) -> None:
+        """Refresh overlay text after language change.
+
+        Text is updated dynamically via t() on each show_*() call,
+        so no cached state needs updating.
+        """
         pass

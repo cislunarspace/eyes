@@ -11,6 +11,7 @@ from PySide6.QtGui import QCloseEvent, QImage, QPixmap
 from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from .classifier import PoseState
+from .i18n import t
 from .types import WarningLevel, WarningLevelEvent
 
 # Badge colour scheme per acceptance criteria
@@ -21,6 +22,18 @@ _BADGE_COLORS: dict[PoseState, tuple[str, str]] = {
     PoseState.OFF_AXIS_OTHER: ("#4d3d1a", "#ffaa00"),  # dark amber bg, amber text
     PoseState.NO_FACE: ("#1a1a1a", "#888888"),         # dark grey bg, grey text
 }
+
+_BADGE_KEYS: dict[PoseState, str] = {
+    PoseState.FACING_SCREEN: "badge.facing_screen",
+    PoseState.OFF_AXIS_LEFT: "badge.off_axis_left",
+    PoseState.OFF_AXIS_RIGHT: "badge.off_axis_right",
+    PoseState.OFF_AXIS_OTHER: "badge.off_axis_other",
+    PoseState.NO_FACE: "badge.no_face",
+}
+
+
+def _badge_text(state: PoseState) -> str:
+    return t(_BADGE_KEYS[state])
 
 
 class MainWindow(QMainWindow):
@@ -38,6 +51,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Eyes")
         self.resize(QSize(800, 600))
 
+        # Track last pose state for refresh_language
+        self._last_pose_state: PoseState = PoseState.NO_FACE
+        self._active_warning_level = WarningLevel.NORMAL
+        self._last_direction: Optional[str] = None
+
         # UI
         central = QWidget()
         self.setCentralWidget(central)
@@ -48,20 +66,20 @@ class MainWindow(QMainWindow):
         self._video_label.setMinimumSize(QSize(640, 480))
         self._video_label.setStyleSheet("background-color: #1a1a1a; color: #00ff88; font-size: 18px;")
         self._readout_label = QLabel(
-            "yaw: —   roll: —",
+            t("main_window.readout_placeholder"),
             alignment=Qt.AlignmentFlag.AlignCenter,
         )
         self._readout_label.setStyleSheet("color: #cccccc; font-size: 14px; background-color: #1a1a1a; padding: 4px;")
 
         self._badge_label = QLabel(
-            PoseState.NO_FACE.value,
+            _badge_text(PoseState.NO_FACE),
             alignment=Qt.AlignmentFlag.AlignCenter,
         )
         self._apply_badge_style(PoseState.NO_FACE)
 
         # Camera unavailable status label (hidden by default)
         self._camera_status_label = QLabel(
-            "摄像头被其他程序占用…等待恢复",
+            t("main_window.camera_unavailable"),
             alignment=Qt.AlignmentFlag.AlignCenter,
         )
         self._camera_status_label.setStyleSheet(
@@ -73,8 +91,6 @@ class MainWindow(QMainWindow):
         # Warning banner (hidden by default, overlaid at bottom of video area)
         self._warning_banner = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
         self._warning_banner.setVisible(False)
-        self._last_pose_state: PoseState = PoseState.NO_FACE
-        self._active_warning_level = WarningLevel.NORMAL
         self._corrected_timer = QTimer(self)
         self._corrected_timer.setSingleShot(True)
         self._corrected_timer.setInterval(2000)
@@ -110,14 +126,14 @@ class MainWindow(QMainWindow):
         """Update the readout label and badge from the tick loop."""
         if yaw is None or roll is None:
             self._last_pose_state = PoseState.NO_FACE
-            self._readout_label.setText("yaw: —   roll: —")
-            self._badge_label.setText(PoseState.NO_FACE.value)
+            self._readout_label.setText(t("main_window.readout_placeholder"))
+            self._badge_label.setText(_badge_text(PoseState.NO_FACE))
             self._apply_badge_style(PoseState.NO_FACE)
         else:
             self._readout_label.setText(f"yaw: {yaw:+.1f}°   roll: {roll:+.1f}°")
             if state is not None:
                 self._last_pose_state = state
-                self._badge_label.setText(state.value)
+                self._badge_label.setText(_badge_text(state))
                 if self._active_warning_level == WarningLevel.NORMAL:
                     self._apply_badge_style(state)
 
@@ -136,7 +152,16 @@ class MainWindow(QMainWindow):
         self._video_label.setPixmap(QPixmap.fromImage(scaled))
 
     def refresh_language(self) -> None:
-        pass
+        """Update all display text after language change."""
+        self._badge_label.setText(_badge_text(self._last_pose_state))
+        self._camera_status_label.setText(t("main_window.camera_unavailable"))
+        if self._active_warning_level == WarningLevel.NORMAL:
+            if self._last_pose_state == PoseState.NO_FACE:
+                self._readout_label.setText(t("main_window.readout_placeholder"))
+        elif self._active_warning_level == WarningLevel.CORRECTED:
+            self._warning_banner.setText(t("main_window.posture_good"))
+        elif self._active_warning_level in (WarningLevel.WARNING, WarningLevel.SEVERE):
+            self._warning_banner.setText(self._rebuild_warning_text())
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Emit close_requested signal instead of accepting the event directly."""
@@ -144,28 +169,24 @@ class MainWindow(QMainWindow):
         event.ignore()
 
     def _hide_warning_banner(self) -> None:
-        """Dismiss the banner only when the level is still CORRECTED.
-
-        Guards against a stale timer firing after the level has already
-        escalated back to WARNING or SEVERE.
-        """
+        """Dismiss the banner only when the level is still CORRECTED."""
         if self._active_warning_level != WarningLevel.CORRECTED:
             return
         self._active_warning_level = WarningLevel.NORMAL
         self._warning_banner.setVisible(False)
         self._apply_badge_style(self._last_pose_state)
 
+    def _rebuild_warning_text(self) -> str:
+        """Build warning banner text from current state."""
+        line1 = t("main_window.please_face_screen")
+        if self._last_direction == "left":
+            line2 = t("main_window.adjust_left_hint")
+        else:
+            line2 = t("main_window.adjust_right_hint")
+        return f"{line1}\n{line2}"
+
     def set_warning_level(self, event: WarningLevelEvent) -> None:
-        """Drive the warning banner through its full lifecycle.
-
-        NORMAL  — hides the banner and stops any pending corrected timer.
-        WARNING — shows a yellow banner with direction hint.
-        SEVERE  — shows a red banner with direction hint.
-        CORRECTED — shows a green "good posture" banner, then auto-hides
-                    after 2 s via ``_hide_warning_banner``.
-
-        The badge label colour is also updated to match the banner.
-        """
+        """Drive the warning banner through its full lifecycle."""
         level, direction = event.level, event.direction
 
         if level == WarningLevel.NORMAL:
@@ -177,21 +198,20 @@ class MainWindow(QMainWindow):
 
         if level in (WarningLevel.WARNING, WarningLevel.SEVERE):
             self._corrected_timer.stop()
+            self._last_direction = direction
 
         if level == WarningLevel.WARNING:
             bg = "#FFD700"
             fg = "#000000"
-            line2 = "← 请向左调整" if direction == "left" else "→ 请向右调整"
-            text = f"请正视屏幕\n{line2}"
+            text = self._rebuild_warning_text()
         elif level == WarningLevel.SEVERE:
             bg = "#FF0000"
             fg = "#FFFFFF"
-            line2 = "← 请向左调整" if direction == "left" else "→ 请向右调整"
-            text = f"请正视屏幕\n{line2}"
+            text = self._rebuild_warning_text()
         elif level == WarningLevel.CORRECTED:
             bg = "#00AA00"
             fg = "#FFFFFF"
-            text = "姿势良好 ✓"
+            text = t("main_window.posture_good")
         else:
             return
 

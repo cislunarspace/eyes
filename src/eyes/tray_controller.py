@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
+from .i18n import t
 from .icon_factory import create_eye_icon
 from .types import TrayIconState
 
@@ -39,7 +40,7 @@ class TrayController(QSystemTrayIcon):
         self._create_menu()
         self.setContextMenu(self._menu)
         self._set_icon()
-        self.setToolTip(self._TOOLTIP_TEXT[self._state])
+        self.setToolTip(self._get_tooltip_text(self._state))
         self.activated.connect(self._on_activated)
         QGuiApplication.styleHints().colorSchemeChanged.connect(self._set_icon)
 
@@ -47,44 +48,44 @@ class TrayController(QSystemTrayIcon):
         """Build the tray context menu."""
         self._menu = QMenu()
 
-        show_window_action = QAction("显示窗口", self._menu)
+        show_window_action = QAction(t("tray.show_window"), self._menu)
         show_window_action.triggered.connect(self.show_window_requested.emit)
         self._menu.addAction(show_window_action)
 
         self._menu.addSeparator()
 
         # Pause submenu items
-        pause_30_action = QAction("Pause 30 minutes", self._menu)
+        pause_30_action = QAction(t("tray.pause_30"), self._menu)
         pause_30_action.triggered.connect(lambda: self.pause_requested.emit(1800))
         self._menu.addAction(pause_30_action)
 
-        pause_1h_action = QAction("Pause 1 hour", self._menu)
+        pause_1h_action = QAction(t("tray.pause_1h"), self._menu)
         pause_1h_action.triggered.connect(lambda: self.pause_requested.emit(3600))
         self._menu.addAction(pause_1h_action)
 
-        pause_indefinite_action = QAction("Pause until I resume", self._menu)
+        pause_indefinite_action = QAction(t("tray.pause_indefinite"), self._menu)
         pause_indefinite_action.triggered.connect(lambda: self.pause_requested.emit(None))
         self._menu.addAction(pause_indefinite_action)
 
         self._menu.addSeparator()
 
         # Resume action (disabled by default)
-        self._resume_action = QAction("Resume", self._menu)
-        self._resume_action.setEnabled(False)
+        self._resume_action = QAction(t("tray.resume"), self._menu)
+        self._resume_action.setEnabled(self._state == TrayIconState.PAUSED)
         self._resume_action.triggered.connect(self.resume_requested.emit)
         self._menu.addAction(self._resume_action)
 
         self._menu.addSeparator()
 
-        # Settings placeholder
-        settings_action = QAction("Open Settings", self._menu)
+        # Settings
+        settings_action = QAction(t("tray.open_settings"), self._menu)
         settings_action.triggered.connect(self.settings_requested.emit)
         self._menu.addAction(settings_action)
 
         self._menu.addSeparator()
 
         # Quit action
-        quit_action = QAction("Quit", self._menu)
+        quit_action = QAction(t("tray.quit"), self._menu)
         quit_action.triggered.connect(self.quit_requested.emit)
         self._menu.addAction(quit_action)
 
@@ -95,6 +96,15 @@ class TrayController(QSystemTrayIcon):
         dark_mode = scheme == Qt.ColorScheme.Dark
         self.setIcon(create_eye_icon(self._state, dark_mode=dark_mode))
 
+    @staticmethod
+    def _get_tooltip_text(state: TrayIconState) -> str:
+        mapping = {
+            TrayIconState.ACTIVE: t("tray.tooltip_active"),
+            TrayIconState.PAUSED: t("tray.tooltip_paused"),
+            TrayIconState.UNAVAILABLE: t("tray.tooltip_unavailable"),
+        }
+        return mapping[state]
+
     @property
     def state(self) -> TrayIconState:
         """Current tray icon state."""
@@ -104,20 +114,19 @@ class TrayController(QSystemTrayIcon):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.show_window_requested.emit()
 
-    _TOOLTIP_TEXT: dict[TrayIconState, str] = {
-        TrayIconState.ACTIVE: "Eyes — 监控中",
-        TrayIconState.PAUSED: "Eyes — 已暂停",
-        TrayIconState.UNAVAILABLE: "Eyes — 摄像头不可用",
-    }
-
     def set_state(self, state: TrayIconState) -> None:
         """Change tray icon state and update menu accordingly."""
         self._state = state
         self._set_icon()
-        self.setToolTip(self._TOOLTIP_TEXT[state])
+        self.setToolTip(self._get_tooltip_text(state))
 
         # Update resume action enabled state
         self._resume_action.setEnabled(state == TrayIconState.PAUSED)
 
     def refresh_language(self) -> None:
-        pass
+        """Rebuild menu and update tooltip with current language."""
+        was_paused = self._resume_action.isEnabled()
+        self._create_menu()
+        self.setContextMenu(self._menu)
+        self._resume_action.setEnabled(was_paused)
+        self.setToolTip(self._get_tooltip_text(self._state))

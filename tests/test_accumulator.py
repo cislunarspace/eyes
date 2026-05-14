@@ -495,14 +495,18 @@ class TestOverlayMessages:
     """NotifierOverlay shows correct arrow and text for each direction."""
 
     def test_off_axis_left_message(self) -> None:
-        from eyes.overlay import _MESSAGES
-        arrow, text = _MESSAGES[PoseState.OFF_AXIS_LEFT]
+        from eyes.i18n import set_language, t
+        set_language("zh-CN")
+        arrow = "←"
+        text = t("overlay.adjust_left")
         assert arrow == "←"
         assert text == "向左调整"
 
     def test_off_axis_right_message(self) -> None:
-        from eyes.overlay import _MESSAGES
-        arrow, text = _MESSAGES[PoseState.OFF_AXIS_RIGHT]
+        from eyes.i18n import set_language, t
+        set_language("zh-CN")
+        arrow = "→"
+        text = t("overlay.adjust_right")
         assert arrow == "→"
         assert text == "向右调整"
 
@@ -511,8 +515,10 @@ class TestOverlayEyeRestMessage:
     """NotifierOverlay shows correct message for eye rest prompt."""
 
     def test_eye_rest_message(self) -> None:
-        from eyes.overlay import _EVENT_MESSAGES
-        arrow, text = _EVENT_MESSAGES["EYE_REST"]
+        from eyes.i18n import set_language, t
+        set_language("zh-CN")
+        arrow = "👀"
+        text = t("overlay.eye_rest")
         assert arrow == "👀"
         assert text == "请眺望远方"
 

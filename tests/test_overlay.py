@@ -1,4 +1,4 @@
-"""Tests for NotifierOverlay positioning and layout (issue #40)."""
+"""Tests for NotifierOverlay positioning, layout, and i18n (issues #40, #56)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from eyes.classifier import PoseState
+from eyes.i18n import set_language
 from eyes.overlay import NotifierOverlay
 
 
@@ -128,3 +129,91 @@ class TestOverlayPositioning:
 
         assert overlay.x() == expected_x
         assert overlay.y() == expected_y
+
+
+class TestOverlayI18n:
+    """Verify overlay messages use t() for translations."""
+
+    def teardown_method(self) -> None:
+        set_language("zh-CN")
+
+    def test_correction_left_in_chinese(self, qtbot) -> None:
+        set_language("zh-CN")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_correction(PoseState.OFF_AXIS_LEFT)
+        assert overlay._arrow_label.text() == "←"
+        assert overlay._text_label.text() == "向左调整"
+
+    def test_correction_left_in_english(self, qtbot) -> None:
+        set_language("en")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_correction(PoseState.OFF_AXIS_LEFT)
+        assert overlay._arrow_label.text() == "←"
+        assert overlay._text_label.text() == "Adjust Left"
+
+    def test_correction_right_in_english(self, qtbot) -> None:
+        set_language("en")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_correction(PoseState.OFF_AXIS_RIGHT)
+        assert overlay._arrow_label.text() == "→"
+        assert overlay._text_label.text() == "Adjust Right"
+
+    def test_good_posture_in_english(self, qtbot) -> None:
+        set_language("en")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_good_posture()
+        assert overlay._arrow_label.text() == "✓"
+        assert overlay._text_label.text() == "Good Posture"
+
+    def test_eye_rest_in_english(self, qtbot) -> None:
+        set_language("en")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_eye_rest()
+        assert overlay._arrow_label.text() == "👀"
+        assert overlay._text_label.text() == "Look Into the Distance"
+
+    def test_corrected_in_english(self, qtbot) -> None:
+        set_language("en")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_corrected()
+        assert overlay._arrow_label.text() == "✓"
+        assert overlay._text_label.text() == "Posture Corrected"
+
+    def test_refresh_language_updates_correction_text(self, qtbot) -> None:
+        set_language("zh-CN")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_correction(PoseState.OFF_AXIS_LEFT)
+        assert overlay._text_label.text() == "向左调整"
+
+        set_language("en")
+        overlay.refresh_language()
+        overlay.show_correction(PoseState.OFF_AXIS_LEFT)
+        assert overlay._text_label.text() == "Adjust Left"
+
+    def test_refresh_language_updates_good_posture_text(self, qtbot) -> None:
+        set_language("zh-CN")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_good_posture()
+        assert overlay._text_label.text() == "当前姿势良好"
+
+        set_language("en")
+        overlay.refresh_language()
+        overlay.show_good_posture()
+        assert overlay._text_label.text() == "Good Posture"
+
+    def test_arrows_unchanged_by_language(self, qtbot) -> None:
+        set_language("en")
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+        overlay.show_correction(PoseState.OFF_AXIS_LEFT)
+        assert overlay._arrow_label.text() == "←"
+        overlay.show_correction(PoseState.OFF_AXIS_RIGHT)
+        assert overlay._arrow_label.text() == "→"
