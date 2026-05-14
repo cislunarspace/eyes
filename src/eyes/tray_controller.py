@@ -118,3 +118,6 @@ class TrayController(QSystemTrayIcon):
 
         # Update resume action enabled state
         self._resume_action.setEnabled(state == TrayIconState.PAUSED)
+
+    def refresh_language(self) -> None:
+        pass

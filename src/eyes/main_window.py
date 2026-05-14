@@ -135,6 +135,9 @@ class MainWindow(QMainWindow):
         )
         self._video_label.setPixmap(QPixmap.fromImage(scaled))
 
+    def refresh_language(self) -> None:
+        pass
+
     def closeEvent(self, event: QCloseEvent) -> None:
         """Emit close_requested signal instead of accepting the event directly."""
         self.close_requested.emit()

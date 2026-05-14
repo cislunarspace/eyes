@@ -135,3 +135,6 @@ class NotifierOverlay(QWidget):
         """Hide the overlay and stop the dismiss timer."""
         self._dismiss_timer.stop()
         super().hide()
+
+    def refresh_language(self) -> None:
+        pass

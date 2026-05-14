@@ -13,6 +13,7 @@ from .classifier import NeutralPose, PoseState, Thresholds
 from .config_store import ConfigStore
 from .detector import HeadPoseDetector
 from .event_log import EventLog
+from .i18n import set_language
 from .icon_factory import create_eye_icon
 from .main_window import MainWindow
 from .overlay import NotifierOverlay
@@ -51,6 +52,7 @@ class AppController:
         # Load configuration
         self._config_store = ConfigStore()
         self._config = self._config_store.load()
+        set_language(self._config.language)
 
         # Event logger
         self._event_log = EventLog()
@@ -158,6 +160,10 @@ class AppController:
         self._config = self._config_store.load()
         self._sense_loop.update_classifier(**self._get_classify_kwargs())
         self._autostart_manager.apply_config(self._config.autostart_enabled)
+        set_language(self._config.language)
+        self._window.refresh_language()
+        self._overlay.refresh_language()
+        self._tray.refresh_language()
 
     def _on_calibration_completed(self, yaw: float, roll: float) -> None:
         """Handle calibration completed - reload config to get updated neutral pose."""
