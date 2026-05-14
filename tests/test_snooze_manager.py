@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from eyes.snooze_manager import SnoozeManager
-from eyes.tray_controller import TrayIconState
+from eyes.types import TrayIconState
 
 
 def _future_iso(seconds: int) -> str:

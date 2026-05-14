@@ -66,6 +66,14 @@ class WarningLevel(enum.Enum):
     CORRECTED = "CORRECTED"
 
 
+class TrayIconState(enum.Enum):
+    """Tray icon variants."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    UNAVAILABLE = "unavailable"
+
+
 @dataclass(frozen=True)
 class WarningLevelEvent:
     """A warning-level transition emitted by the accumulator engine.

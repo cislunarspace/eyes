@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
-from .tray_controller import TrayIconState
+from .types import TrayIconState
 
 
 class ConfigStoreLike(Protocol):

@@ -2,26 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
-from pathlib import Path
-
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtCore import Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
-# Icon paths relative to the package
-_ICON_DIR = Path(__file__).parent / "icons"
-_ICON_ACTIVE_PATH = _ICON_DIR / "tray_active.png"
-_ICON_PAUSED_PATH = _ICON_DIR / "tray_paused.png"
-_ICON_UNAVAILABLE_PATH = _ICON_DIR / "tray_unavailable.png"
-
-
-class TrayIconState(Enum):
-    """Tray icon variants."""
-
-    ACTIVE = "active"
-    PAUSED = "paused"
-    UNAVAILABLE = "unavailable"
+from .icon_factory import create_eye_icon
+from .types import TrayIconState
 
 
 class TrayController(QSystemTrayIcon):
@@ -92,43 +78,7 @@ class TrayController(QSystemTrayIcon):
 
     def _set_icon(self) -> None:
         """Set the tray icon based on current state."""
-        icon_paths = {
-            TrayIconState.ACTIVE: _ICON_ACTIVE_PATH,
-            TrayIconState.PAUSED: _ICON_PAUSED_PATH,
-            TrayIconState.UNAVAILABLE: _ICON_UNAVAILABLE_PATH,
-        }
-        icon_path = icon_paths.get(self._state, _ICON_ACTIVE_PATH)
-        # Fall back to system icon if custom icon doesn't exist
-        if icon_path.exists():
-            self.setIcon(QIcon(str(icon_path)))
-        else:
-            self.setIcon(self._create_fallback_icon())
-
-    def _create_fallback_icon(self) -> QIcon:
-        """Create a simple colored icon as fallback."""
-        from PySide6.QtCore import QRect
-        from PySide6.QtGui import QBrush, QColor, QPainter, QPixmap
-
-        # Use different colors based on state
-        colors = {
-            TrayIconState.ACTIVE: "#00cc44",
-            TrayIconState.PAUSED: "#ffaa00",
-            TrayIconState.UNAVAILABLE: "#888888",
-        }
-        color = colors.get(self._state, colors[TrayIconState.ACTIVE])
-
-        # Create a simple 16x16 pixmap
-        pixmap = QPixmap(16, 16)
-        pixmap.fill(QColor("transparent"))
-
-        # Draw a filled circle
-        painter = QPainter(pixmap)
-        painter.setBrush(QBrush(QColor(color)))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(QRect(2, 2, 12, 12))
-        painter.end()
-
-        return QIcon(pixmap)
+        self.setIcon(create_eye_icon(self._state))
 
     @property
     def state(self) -> TrayIconState:
