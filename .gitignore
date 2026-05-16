@@ -9,6 +9,10 @@ wheels/
 .coverage
 htmlcov/
 
+# Frontend/Tauri-generated files
+node_modules/
+src-tauri/target/
+
 # Virtual environments
 .venv
 
