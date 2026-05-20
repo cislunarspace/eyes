@@ -18,112 +18,78 @@ import numpy as np
 import pytest
 
 from eyes.classifier import HeadPose
-from eyes.detector import (
-    _LANDMARK_CHIN,
-    _LANDMARK_FOREHEAD,
-    _LANDMARK_LEFT_EAR,
-    _LANDMARK_RIGHT_EAR,
-    HeadPoseDetector,
-    _compute_pose_from_landmarks,
-)
+from eyes.detector import HeadPoseDetector, _euler_from_rotation_matrix
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-class _Landmark:
-    """Minimal landmark stand-in with x, y, z attributes."""
 
-    def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> None:
-        self.x = x
-        self.y = y
-        self.z = z
-
-
-def _make_landmarks(overrides: dict[int, _Landmark] | None = None) -> list[_Landmark]:
-    """Build a 468-element landmark list with selective overrides."""
-    default = _Landmark(0.5, 0.5, -0.05)
-    lm = [default] * 468
-    for idx, val in (overrides or {}).items():
-        lm[idx] = val
-    return lm
+def _yaw_matrix(degrees: float) -> np.ndarray:
+    radians = math.radians(degrees)
+    cos = math.cos(radians)
+    sin = math.sin(radians)
+    return np.array([
+        [cos, 0.0, sin],
+        [0.0, 1.0, 0.0],
+        [-sin, 0.0, cos],
+    ])
 
 
-def _centered_landmarks() -> list[_Landmark]:
-    """Landmarks for a head facing the camera directly (yaw=0, pitch=0)."""
-    return _make_landmarks({
-        _LANDMARK_LEFT_EAR: _Landmark(0.85, 0.50, -0.05),
-        _LANDMARK_RIGHT_EAR: _Landmark(0.15, 0.50, -0.05),
-        _LANDMARK_FOREHEAD: _Landmark(0.50, 0.30, -0.10),
-        _LANDMARK_CHIN: _Landmark(0.50, 0.70, -0.10),
-    })
+def _roll_matrix(degrees: float) -> np.ndarray:
+    radians = math.radians(degrees)
+    cos = math.cos(radians)
+    sin = math.sin(radians)
+    return np.array([
+        [cos, -sin, 0.0],
+        [sin, cos, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+
+
+def _transformation_matrix(rotation: np.ndarray) -> list[float]:
+    transform = np.eye(4)
+    transform[:3, :3] = rotation
+    return transform.reshape(-1).tolist()
+
+
+def _centered_landmarks() -> list[object]:
+    return [object()] * 478
 
 
 # ---------------------------------------------------------------------------
 # Pure function tests
 # ---------------------------------------------------------------------------
 
-class TestComputePoseFromLandmarks:
-    """Parametric tests for _compute_pose_from_landmarks."""
 
-    def test_centered_gives_zero_yaw_pitch(self) -> None:
-        pose = _compute_pose_from_landmarks(_centered_landmarks())
+class TestEulerFromRotationMatrix:
+    def test_identity_gives_zero_yaw_roll(self) -> None:
+        pose = _euler_from_rotation_matrix(np.eye(3))
         assert abs(pose.yaw) < 0.01
         assert abs(pose.roll) < 0.01
 
     def test_positive_yaw(self) -> None:
-        """Head turned right: left ear closer (z more negative), right ear farther."""
-        lm = _centered_landmarks()
-        lm[_LANDMARK_LEFT_EAR] = _Landmark(0.85, 0.50, -0.10)
-        lm[_LANDMARK_RIGHT_EAR] = _Landmark(0.15, 0.50, 0.00)
-        pose = _compute_pose_from_landmarks(lm)
-        assert pose.yaw > 0
+        pose = _euler_from_rotation_matrix(_yaw_matrix(12.0))
+        assert pose.yaw == pytest.approx(12.0)
 
     def test_negative_yaw(self) -> None:
-        """Head turned left: right ear closer, left ear farther."""
-        lm = _centered_landmarks()
-        lm[_LANDMARK_LEFT_EAR] = _Landmark(0.85, 0.50, 0.00)
-        lm[_LANDMARK_RIGHT_EAR] = _Landmark(0.15, 0.50, -0.10)
-        pose = _compute_pose_from_landmarks(lm)
-        assert pose.yaw < 0
+        pose = _euler_from_rotation_matrix(_yaw_matrix(-12.0))
+        assert pose.yaw == pytest.approx(-12.0)
 
-    def test_positive_pitch(self) -> None:
-        """Looking up: forehead closer, chin farther."""
-        lm = _centered_landmarks()
-        lm[_LANDMARK_FOREHEAD] = _Landmark(0.50, 0.30, -0.15)
-        lm[_LANDMARK_CHIN] = _Landmark(0.50, 0.70, -0.05)
-        pose = _compute_pose_from_landmarks(lm)
-        assert pose.roll > 0
+    def test_positive_roll(self) -> None:
+        pose = _euler_from_rotation_matrix(_roll_matrix(10.0))
+        assert pose.roll == pytest.approx(10.0)
 
-    def test_negative_pitch(self) -> None:
-        """Looking down: chin closer, forehead farther."""
-        lm = _centered_landmarks()
-        lm[_LANDMARK_FOREHEAD] = _Landmark(0.50, 0.30, -0.05)
-        lm[_LANDMARK_CHIN] = _Landmark(0.50, 0.70, -0.15)
-        pose = _compute_pose_from_landmarks(lm)
-        assert pose.roll < 0
+    def test_negative_roll(self) -> None:
+        pose = _euler_from_rotation_matrix(_roll_matrix(-10.0))
+        assert pose.roll == pytest.approx(-10.0)
 
-    def test_yaw_and_pitch_independent(self) -> None:
-        """Changing pitch should not significantly affect yaw."""
-        base = _compute_pose_from_landmarks(_centered_landmarks())
-        lm = _centered_landmarks()
-        # Pitch the head down without changing ear positions
-        lm[_LANDMARK_FOREHEAD] = _Landmark(0.50, 0.30, -0.05)
-        lm[_LANDMARK_CHIN] = _Landmark(0.50, 0.70, -0.15)
-        pitched = _compute_pose_from_landmarks(lm)
-        assert abs(pitched.yaw - base.yaw) < 0.1
-        assert abs(pitched.roll - base.roll) > 0.1
-
-    def test_pitch_and_yaw_independent(self) -> None:
-        """Changing yaw should not significantly affect pitch."""
-        base = _compute_pose_from_landmarks(_centered_landmarks())
-        lm = _centered_landmarks()
-        lm[_LANDMARK_LEFT_EAR] = _Landmark(0.85, 0.50, -0.10)
-        lm[_LANDMARK_RIGHT_EAR] = _Landmark(0.15, 0.50, 0.00)
-        yawed = _compute_pose_from_landmarks(lm)
-        assert abs(yawed.yaw - base.yaw) > 0.1
-        assert abs(yawed.roll - base.roll) < 0.1
+    def test_combined_yaw_and_roll(self) -> None:
+        rotation = _yaw_matrix(12.0) @ _roll_matrix(10.0)
+        pose = _euler_from_rotation_matrix(rotation)
+        assert pose.yaw == pytest.approx(12.0)
+        assert pose.roll == pytest.approx(10.0)
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +134,7 @@ def test_detector_return_type_is_head_pose(monkeypatch) -> None:
 
     class MockResult:
         face_landmarks = [_centered_landmarks()]
+        facial_transformation_matrixes = [_transformation_matrix(np.eye(3))]
 
     class MockFaceLandmarker:
         def __init__(self, options):
@@ -197,13 +164,9 @@ def test_detector_return_type_is_head_pose(monkeypatch) -> None:
 
 
 def test_detector_yaw_sign_positive_right(monkeypatch) -> None:
-    """Positive yaw (right turn) gives positive output."""
-    lm = _centered_landmarks()
-    lm[_LANDMARK_LEFT_EAR] = _Landmark(0.85, 0.50, -0.10)
-    lm[_LANDMARK_RIGHT_EAR] = _Landmark(0.15, 0.50, 0.00)
-
     class MockResult:
-        face_landmarks = [lm]
+        face_landmarks = [_centered_landmarks()]
+        facial_transformation_matrixes = [_transformation_matrix(_yaw_matrix(12.0))]
 
     class MockFaceLandmarker:
         def __init__(self, options):
@@ -225,7 +188,7 @@ def test_detector_yaw_sign_positive_right(monkeypatch) -> None:
     detector = det_mod.HeadPoseDetector()
     result = detector.detect(_synthetic_frame())
     assert result is not None
-    assert result.yaw > 0
+    assert result.yaw == pytest.approx(12.0)
 
 
 def test_detector_close_calls_underlying_detector(monkeypatch) -> None:
