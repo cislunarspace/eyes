@@ -13,11 +13,27 @@ from eyes.overlay import NotifierOverlay
 class TestOverlayLayout:
     """Verify overlay layout properties."""
 
-    def test_minimum_width_is_260(self, qtbot) -> None:
+    def test_minimum_width_is_320(self, qtbot) -> None:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
 
-        assert overlay.minimumWidth() == 260
+        assert overlay.minimumWidth() == 320
+
+    def test_uses_soft_health_card_styling(self, qtbot) -> None:
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+
+        stylesheet = overlay.styleSheet()
+        assert "rgba(8, 20, 22, 0.94)" in stylesheet
+        assert "border-radius: 18px" in stylesheet
+        assert "rgba(70, 211, 181, 0.5)" in stylesheet
+
+    def test_show_animation_is_subtle(self, qtbot) -> None:
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+
+        assert overlay._fade_animation.duration() == 180
+        assert overlay._slide_animation.duration() == 180
 
 
 class TestCorrectionDismissBehavior:
@@ -119,6 +135,24 @@ class TestOverlayPositioning:
         overlay.show()
 
         overlay.show_correction(PoseState.OFF_AXIS_LEFT)
+        qtbot.wait(220)
+
+        screen = QApplication.primaryScreen()
+        assert screen is not None
+        geo = screen.availableGeometry()
+
+        expected_x = geo.x() + (geo.width() - overlay.width()) // 2
+        expected_y = geo.y() + geo.height() - overlay.height() - 24
+
+        assert overlay.x() == expected_x
+        assert overlay.y() == expected_y
+
+    def test_first_show_correction_repositions_to_bottom_center(self, qtbot) -> None:
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+
+        overlay.show_correction(PoseState.OFF_AXIS_LEFT)
+        qtbot.wait(220)
 
         screen = QApplication.primaryScreen()
         assert screen is not None

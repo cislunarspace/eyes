@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPoint, QPropertyAnimation, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from .classifier import PoseState
@@ -22,6 +22,8 @@ _EVENT_ARROWS: dict[str, str] = {
 
 _AUTO_DISMISS_MS = 4000
 _CORRECTED_DISMISS_MS = 1500
+_ANIMATION_MS = 180
+_SLIDE_OFFSET_PX = 10
 
 
 class NotifierOverlay(QWidget):
@@ -40,27 +42,27 @@ class NotifierOverlay(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self._setup_ui()
+        self._setup_animation()
         self._dismiss_timer = QTimer()
         self._dismiss_timer.timeout.connect(self.hide)
         self._move_to_active_screen()
 
     def _setup_ui(self) -> None:
-        """Create the overlay layout with a large arrow label and a text label below it."""
-        self.setMinimumWidth(260)
+        self.setMinimumWidth(320)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(8)
+        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setSpacing(6)
 
         self._arrow_label = QLabel()
         self._arrow_label.setStyleSheet(
-            "font-size: 48px; color: #ff4444; background: transparent;"
+            "font-size: 40px; color: #46D3B5; background: transparent; font-weight: 700;"
         )
         self._arrow_label.setAlignment(Qt.AlignCenter)
 
         self._text_label = QLabel()
         self._text_label.setStyleSheet(
-            "font-size: 20px; color: #ffffff; background: transparent; font-weight: bold;"
+            "font-size: 18px; color: #EAFBF7; background: transparent; font-weight: 600;"
         )
         self._text_label.setAlignment(Qt.AlignCenter)
 
@@ -68,9 +70,25 @@ class NotifierOverlay(QWidget):
         layout.addWidget(self._text_label)
 
         self.setStyleSheet(
-            "background-color: rgba(20, 20, 20, 0.92); "
-            "border-radius: 12px; border: 1px solid rgba(255, 68, 68, 0.6);"
+            "background-color: rgba(8, 20, 22, 0.94); "
+            "border-radius: 18px; "
+            "border: 1px solid rgba(70, 211, 181, 0.5);"
         )
+
+    def _setup_animation(self) -> None:
+        self._fade_animation = QPropertyAnimation(self, b"windowOpacity")
+        self._fade_animation.setDuration(_ANIMATION_MS)
+        self._fade_animation.setStartValue(0.0)
+        self._fade_animation.setEndValue(1.0)
+        self._fade_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._slide_animation = QPropertyAnimation(self, b"pos")
+        self._slide_animation.setDuration(_ANIMATION_MS)
+        self._slide_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._show_animation = QParallelAnimationGroup(self)
+        self._show_animation.addAnimation(self._fade_animation)
+        self._show_animation.addAnimation(self._slide_animation)
 
     def _move_to_active_screen(self) -> None:
         """Position the overlay at bottom-center of the primary screen."""
@@ -81,6 +99,22 @@ class NotifierOverlay(QWidget):
         x = geo.x() + (geo.width() - self.width()) // 2
         y = geo.y() + geo.height() - self.height() - 24
         self.move(x, y)
+
+    def _show_with_animation(self) -> None:
+        self.adjustSize()
+        self._move_to_active_screen()
+        end_pos = self.pos()
+        start_pos = QPoint(end_pos.x(), end_pos.y() + _SLIDE_OFFSET_PX)
+
+        self._show_animation.stop()
+        self.setWindowOpacity(0.0)
+        self.move(start_pos)
+        self._slide_animation.setStartValue(start_pos)
+        self._slide_animation.setEndValue(end_pos)
+
+        self.show()
+        self.raise_()
+        self._show_animation.start()
 
     @staticmethod
     def _correction_text(direction: PoseState) -> str:
@@ -107,18 +141,14 @@ class NotifierOverlay(QWidget):
         self._arrow_label.setText(_ARROWS[direction])
         self._text_label.setText(self._correction_text(direction))
 
-        self._move_to_active_screen()
-        self.show()
-        self.raise_()
+        self._show_with_animation()
 
     def show_good_posture(self) -> None:
         """Show good posture encouragement."""
         self._arrow_label.setText(_EVENT_ARROWS["GOOD_POSTURE"])
         self._text_label.setText(self._event_text("GOOD_POSTURE"))
 
-        self._move_to_active_screen()
-        self.show()
-        self.raise_()
+        self._show_with_animation()
 
         self._dismiss_timer.start(_AUTO_DISMISS_MS)
 
@@ -127,9 +157,7 @@ class NotifierOverlay(QWidget):
         self._arrow_label.setText(_EVENT_ARROWS["EYE_REST"])
         self._text_label.setText(self._event_text("EYE_REST"))
 
-        self._move_to_active_screen()
-        self.show()
-        self.raise_()
+        self._show_with_animation()
 
         self._dismiss_timer.start(_AUTO_DISMISS_MS)
 
@@ -138,14 +166,14 @@ class NotifierOverlay(QWidget):
         self._arrow_label.setText(_EVENT_ARROWS["CORRECTED"])
         self._text_label.setText(self._event_text("CORRECTED"))
 
-        self._move_to_active_screen()
-        self.show()
-        self.raise_()
+        self._show_with_animation()
 
         self._dismiss_timer.start(_CORRECTED_DISMISS_MS)
 
     def hide(self) -> None:
         """Hide the overlay and stop the dismiss timer."""
+        self._show_animation.stop()
+        self.setWindowOpacity(1.0)
         self._dismiss_timer.stop()
         super().hide()
 
