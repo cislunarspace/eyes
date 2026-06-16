@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Optional, assert_never
 
 from .classifier import PoseState
+from .runtime_timings import CORRECTED_AUTO_DISMISS_MS  # noqa: F401 — re-exported
 from .types import WarningLevel, WarningLevelEvent
 
 # Badge colours when the warning level is NORMAL (badge follows pose state).
@@ -39,7 +40,8 @@ BANNER_FG_SEVERE = "#FFFFFF"
 BANNER_BG_CORRECTED = "#00AA00"
 BANNER_FG_CORRECTED = "#FFFFFF"
 
-CORRECTED_AUTO_DISMISS_MS = 2000
+# Re-exported from runtime_timings.py for backward compatibility.
+# from .runtime_timings import CORRECTED_AUTO_DISMISS_MS  # noqa: E402
 
 
 @dataclass(frozen=True)

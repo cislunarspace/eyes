@@ -50,6 +50,9 @@ def _mock_controller_deps(config: MagicMock | None = None):
         patch("eyes.controller.AutostartManager"),
         patch("eyes.controller.QTimer"),
         patch("eyes.controller.create_eye_icon"),
+        patch("eyes.controller.MonitoringLoop"),
+        patch("eyes.controller.SenseEventBus"),
+        patch("eyes.controller.SettingsBridge"),
     ):
         MockConfigStore.return_value.load.return_value = config
         yield config
@@ -102,31 +105,25 @@ class TestSettingsChangePropagation:
         set_language("zh-CN")
 
     def test_set_language_called_with_new_config_language(self) -> None:
+        # The bridge now owns the call to set_language; assert the bridge
+        # was invoked. The set_language side effect is covered in
+        # test_settings_bridge.py.
         controller = object.__new__(AppController)
         controller._config_store = MagicMock()
         controller._config_store.load.return_value = _make_config(language="en")
-        controller._sense_loop = MagicMock()
-        controller._autostart_manager = MagicMock()
-        controller._window = MagicMock()
-        controller._overlay = MagicMock()
-        controller._tray = MagicMock()
+        controller._settings_bridge = MagicMock()
 
         controller._on_settings_changed()
 
-        assert i18n.current_language == "en"
+        controller._settings_bridge.apply_config.assert_called_once()
 
     def test_refresh_language_called_on_window_overlay_tray(self) -> None:
+        # Same: the bridge now owns the refresh calls.
         controller = object.__new__(AppController)
         controller._config_store = MagicMock()
         controller._config_store.load.return_value = _make_config(language="en")
-        controller._sense_loop = MagicMock()
-        controller._autostart_manager = MagicMock()
-        controller._window = MagicMock()
-        controller._overlay = MagicMock()
-        controller._tray = MagicMock()
+        controller._settings_bridge = MagicMock()
 
         controller._on_settings_changed()
 
-        controller._window.refresh_language.assert_called_once()
-        controller._overlay.refresh_language.assert_called_once()
-        controller._tray.refresh_language.assert_called_once()
+        controller._settings_bridge.apply_config.assert_called_once()

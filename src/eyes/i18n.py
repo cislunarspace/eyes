@@ -1,8 +1,18 @@
-"""i18n module — translation dictionary with t() lookup and set_language() switching."""
+"""i18n module — translation dictionary with Translator class and t() convenience.
+
+The `Translator` class owns the dictionary and the current language.
+Multiple translators can coexist in the same process (each with its
+own language) — this is the seam the architecture review asked for.
+
+Module-level `t()` and `set_language()` delegate to a process-wide
+default translator, so existing callers keep working without changes.
+The module-level `current_language` is a thin property that reads
+from the default translator.
+"""
 
 from __future__ import annotations
 
-current_language: str = "zh-CN"
+from dataclasses import dataclass, field
 
 _TRANSLATIONS: dict[str, dict[str, str]] = {
     "zh-CN": {
@@ -120,10 +130,58 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
 }
 
 
+class Translator:
+    """Owns a translation dictionary and a current language.
+
+    Multiple translators can coexist in the same process — each
+    carries its own language. The module-level `t()` and
+    `set_language()` delegate to a process-wide default translator
+    so existing callers keep working.
+    """
+
+    def __init__(self, language: str = "zh-CN") -> None:
+        self._language = language
+
+    @property
+    def language(self) -> str:
+        return self._language
+
+    def set_language(self, lang: str) -> None:
+        self._language = lang
+
+    def t(self, key: str) -> str:
+        return _TRANSLATIONS[self._language][key]
+
+
+# Process-wide default translator.
+_default_translator = Translator()
+
+
 def set_language(lang: str) -> None:
-    global current_language
-    current_language = lang
+    """Set the process-wide default language. Delegates to the default translator."""
+    _default_translator.set_language(lang)
 
 
 def t(key: str) -> str:
-    return _TRANSLATIONS[current_language][key]
+    """Look up a translation key using the process-wide default language."""
+    return _default_translator.t(key)
+
+
+# Backward-compatible module-level attribute. Reads from the default
+# translator via __getattr__/__setattr__. No module-level assignment
+# here — that would shadow the descriptors and go stale.
+
+
+def __getattr__(name: str) -> str:
+    """Intercept reads of `current_language` to proxy from the default translator."""
+    if name == "current_language":
+        return _default_translator.language
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __setattr__(name: str, value: str) -> None:
+    """Intercept writes to `current_language` to proxy to the default translator."""
+    if name == "current_language":
+        _default_translator.set_language(value)
+    else:
+        globals()[name] = value

@@ -1,4 +1,25 @@
-"""Tests for NotifierOverlay positioning, layout, and i18n (issues #40, #56)."""
+"""Tests for NotifierOverlay — pill-style island overlay (altgo design).
+
+Behavior under test (preserved from the previous design):
+
+  - show_correction has no auto-dismiss timer; stays visible until next call.
+  - show_corrected auto-dismisses after 1.5 s.
+  - show_good_posture / show_eye_rest auto-dismiss after 4 s.
+  - Overlay never accepts keyboard focus.
+  - Overlay is positioned at bottom-center of the primary screen.
+  - All prompts go through t() for translation; refresh_language()
+    re-reads t() on the next show_*() call.
+  - Enter/exit animation is 180 ms (altgo --duration-normal).
+
+Visual contract (updated to the altgo pill design):
+
+  - Single horizontal pill: small status indicator + label.
+  - Border radius 9999px (full pill).
+  - Dark surface: rgb(22, 22, 28) (overlay-surface-solid).
+  - 1px subtle border, soft shadow.
+  - Status indicator is a 20x20 circle with a glyph; the glyph is
+    direction-aware for corrections.
+"""
 
 from __future__ import annotations
 
@@ -10,34 +31,58 @@ from eyes.i18n import set_language
 from eyes.overlay import NotifierOverlay
 
 
-class TestOverlayLayout:
-    """Verify overlay layout properties."""
+# Variant → expected indicator glyph (text inside the small circle).
+_EXPECTED_GLYPH = {
+    "correction_left": "←",
+    "correction_right": "→",
+    "good_posture": "✓",
+    "eye_rest": "◌",
+    "corrected": "✓",
+}
 
-    def test_minimum_width_is_320(self, qtbot) -> None:
+
+class TestOverlayLayout:
+    """Verify the pill layout properties."""
+
+    def test_minimum_width_is_220(self, qtbot) -> None:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
 
-        assert overlay.minimumWidth() == 320
+        assert overlay.minimumWidth() == 220
 
-    def test_uses_soft_health_card_styling(self, qtbot) -> None:
+    def test_uses_altgo_island_styling(self, qtbot) -> None:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
 
         stylesheet = overlay.styleSheet()
-        assert "rgba(8, 20, 22, 0.94)" in stylesheet
-        assert "border-radius: 18px" in stylesheet
-        assert "rgba(70, 211, 181, 0.5)" in stylesheet
+        # Pill shape (altgo: --radius-full / 9999px).
+        assert "border-radius: 9999px" in stylesheet
+        # Solid dark surface (altgo overlay-surface-solid).
+        assert "rgb(22, 22, 28)" in stylesheet
+        # 1px subtle border.
+        assert "1px solid" in stylesheet
+        assert "rgba(255, 255, 255, 0.12)" in stylesheet
 
-    def test_show_animation_is_subtle(self, qtbot) -> None:
+    def test_show_animation_is_altgo_timing(self, qtbot) -> None:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
 
+        # altgo's --duration-normal is 180ms.
         assert overlay._fade_animation.duration() == 180
         assert overlay._slide_animation.duration() == 180
 
+    def test_has_status_indicator_and_label(self, qtbot) -> None:
+        overlay = NotifierOverlay()
+        qtbot.addWidget(overlay)
+
+        assert hasattr(overlay, "_indicator")
+        assert hasattr(overlay, "_text_label")
+        assert overlay._indicator.width() == 20
+        assert overlay._indicator.height() == 20
+
 
 class TestCorrectionDismissBehavior:
-    """Verify show_correction() stays visible (no auto-dismiss) and show_corrected() auto-dismisses."""
+    """Auto-dismiss timing."""
 
     def test_show_correction_does_not_start_dismiss_timer(self, qtbot) -> None:
         overlay = NotifierOverlay()
@@ -63,12 +108,12 @@ class TestCorrectionDismissBehavior:
         assert overlay._dismiss_timer.isActive()
         assert overlay._dismiss_timer.interval() == 1500
 
-    def test_show_corrected_displays_good_posture_text(self, qtbot) -> None:
+    def test_show_corrected_displays_corrected_glyph_and_text(self, qtbot) -> None:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
         overlay.show_corrected()
 
-        assert "✓" in overlay._arrow_label.text()
+        assert overlay._indicator.text() == _EXPECTED_GLYPH["corrected"]
         assert "姿势良好" in overlay._text_label.text()
 
     def test_show_corrected_auto_hides_after_1_5s(self, qtbot) -> None:
@@ -176,7 +221,7 @@ class TestOverlayI18n:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
         overlay.show_correction(PoseState.OFF_AXIS_LEFT)
-        assert overlay._arrow_label.text() == "←"
+        assert overlay._indicator.text() == "←"
         assert overlay._text_label.text() == "向左调整"
 
     def test_correction_left_in_english(self, qtbot) -> None:
@@ -184,7 +229,7 @@ class TestOverlayI18n:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
         overlay.show_correction(PoseState.OFF_AXIS_LEFT)
-        assert overlay._arrow_label.text() == "←"
+        assert overlay._indicator.text() == "←"
         assert overlay._text_label.text() == "Adjust Left"
 
     def test_correction_right_in_english(self, qtbot) -> None:
@@ -192,7 +237,7 @@ class TestOverlayI18n:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
         overlay.show_correction(PoseState.OFF_AXIS_RIGHT)
-        assert overlay._arrow_label.text() == "→"
+        assert overlay._indicator.text() == "→"
         assert overlay._text_label.text() == "Adjust Right"
 
     def test_good_posture_in_english(self, qtbot) -> None:
@@ -200,7 +245,7 @@ class TestOverlayI18n:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
         overlay.show_good_posture()
-        assert overlay._arrow_label.text() == "✓"
+        assert overlay._indicator.text() == "✓"
         assert overlay._text_label.text() == "Good Posture"
 
     def test_eye_rest_in_english(self, qtbot) -> None:
@@ -208,7 +253,7 @@ class TestOverlayI18n:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
         overlay.show_eye_rest()
-        assert overlay._arrow_label.text() == "👀"
+        assert overlay._indicator.text() == "◌"
         assert overlay._text_label.text() == "Look Into the Distance"
 
     def test_corrected_in_english(self, qtbot) -> None:
@@ -216,7 +261,7 @@ class TestOverlayI18n:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
         overlay.show_corrected()
-        assert overlay._arrow_label.text() == "✓"
+        assert overlay._indicator.text() == "✓"
         assert overlay._text_label.text() == "Posture Corrected"
 
     def test_refresh_language_updates_correction_text(self, qtbot) -> None:
@@ -248,6 +293,6 @@ class TestOverlayI18n:
         overlay = NotifierOverlay()
         qtbot.addWidget(overlay)
         overlay.show_correction(PoseState.OFF_AXIS_LEFT)
-        assert overlay._arrow_label.text() == "←"
+        assert overlay._indicator.text() == "←"
         overlay.show_correction(PoseState.OFF_AXIS_RIGHT)
-        assert overlay._arrow_label.text() == "→"
+        assert overlay._indicator.text() == "→"

@@ -1,8 +1,16 @@
-"""AppController — orchestrates the camera -> detect -> classify -> update-UI loop at 10 Hz."""
+"""AppController — thin assembler for the monitoring stack.
+
+Wires VisionInput, SenseLoop, MonitoringLoop, SenseEventBus,
+SnoozeManager, SettingsBridge, and the Qt UI together. The 10 Hz tick
+calls `_tick`; per-event fan-out is handled by SenseEventBus; the
+config-rebuild sequence is handled by SettingsBridge. This module
+only assembles those pieces and connects them to the Qt lifecycle.
+"""
 
 from __future__ import annotations
 
-import numpy as np
+from typing import Optional
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
@@ -15,244 +23,156 @@ from .event_log import EventLog
 from .i18n import set_language
 from .icon_factory import create_eye_icon
 from .main_window import MainWindow
+from .monitoring_loop import MonitoringLoop
 from .overlay import NotifierOverlay
-from .sense_loop import (
-    AccumulatorConfig,
-    CorrectionEvent,
-    EyeRestEvent,
-    GoodPostureEvent,
-    SenseEvent,
-    SenseLoop,
-)
+from .sense_event_bus import SenseEventBus
+from .sense_loop import AccumulatorConfig, SenseLoop
+from .settings_bridge import SettingsBridge
 from .settings_dialog import SettingsDialog
 from .snooze_manager import SnoozeManager
 from .tray_controller import TrayController
 from .types import AppEventKind, TrayIconState, WarningLevel, WarningLevelEvent
-from .vision_input import FrameReady, VisionInput, VisionUnavailable
-
-# Tick interval: 100 ms = 0.1 seconds
-_DT_SECONDS = 0.1
-# Camera retry interval: 50 ticks = 5 seconds at 10 Hz
-_CAMERA_RETRY_INTERVAL_TICKS = 50
+from .runtime_timings import CAMERA_RETRY_INTERVAL_TICKS, TICK_INTERVAL_MS, TICK_INTERVAL_SECONDS
+from .vision_input import VisionInput, VisionUnavailable
 
 
 class AppController:
-    """Drives the 10 Hz tick loop and coordinates all components.
-
-    Single QTimer at 100 ms interval:
-      read frame -> detect head pose -> classify -> accumulate -> update UI -> repeat
-
-    On camera/detector errors the loop keeps running but the UI shows
-    the unavailable state. The window close event minimizes to tray (not quit).
-    """
+    """Assembles the monitoring stack and owns the Qt lifecycle."""
 
     def __init__(self, app: QApplication, camera_index: int | None = None) -> None:
         self._app = app
-
-        # Load configuration
         self._config_store = ConfigStore()
         self._config = self._config_store.load()
         set_language(self._config.language)
-
-        # Event logger
         self._event_log = EventLog()
-
-        # Determine camera index: CLI arg > config > default 0
         if camera_index is None:
             camera_index = self._config.camera_index
-
-        # Vision input (camera + detector lifecycle)
         self._vision = VisionInput(
             camera=CameraSource(index=camera_index),
             detector_factory=HeadPoseDetector,
-            retry_interval_ticks=_CAMERA_RETRY_INTERVAL_TICKS,
+            retry_interval_ticks=CAMERA_RETRY_INTERVAL_TICKS,
         )
-
-        # Pure view window
         self._window = MainWindow()
         self._timer = QTimer()
-        self._timer.setInterval(100)  # 10 Hz
-
-        # Qt-free sensing loop for detect -> classify -> accumulate -> prompt events.
+        self._timer.setInterval(TICK_INTERVAL_MS)  # 10 Hz
         self._sense_loop = SenseLoop(
             None,
-            **self._get_classify_kwargs(),
-            accumulator_config=self._get_accumulator_config(),
+            neutral=NeutralPose(yaw=self._config.neutral_yaw, roll=self._config.neutral_roll),
+            thresholds=Thresholds(yaw_deg=self._config.yaw_threshold, roll_deg=self._config.roll_threshold),
+            accumulator_config=AccumulatorConfig(
+                off_axis_streak_threshold_seconds=self._config.off_axis_streak_threshold_seconds,
+                off_axis_repeat_interval_seconds=self._config.off_axis_repeat_interval_seconds,
+                facing_threshold_seconds=self._config.facing_threshold_seconds,
+                eyest_threshold_seconds=self._config.eyest_threshold_seconds,
+            ),
         )
         self._accumulator = self._sense_loop.engine
-
-        # Overlay for correction prompts
         self._overlay = NotifierOverlay()
-
-        # Tray controller
         self._tray = TrayController()
-        self._tray.show_window_requested.connect(self._on_show_window_requested)
+        self._tray.show_window_requested.connect(self._show_window)
         self._tray.settings_requested.connect(self._on_settings_requested)
         self._tray.quit_requested.connect(self._on_quit_requested)
-
-        # Snooze manager - handles pause/resume lifecycle
+        self._tray.pause_requested.connect(self._on_pause_requested)
+        self._tray.resume_requested.connect(self._on_resume_requested)
+        self._bus = SenseEventBus(event_log=self._event_log, overlay=self._overlay, window=self._window)
+        self._autostart_manager = AutostartManager()
+        self._settings_bridge = SettingsBridge(
+            config_store=self._config_store,
+            sense_loop=self._sense_loop,
+            autostart=self._autostart_manager,
+            window=self._window,
+            overlay=self._overlay,
+            tray=self._tray,
+        )
         self._snooze_manager = SnoozeManager(
             self._config_store,
             self._accumulator,
             self._tray,
             on_snooze_end=lambda: self._event_log.append(AppEventKind.SNOOZE_END),
         )
-        self._tray.pause_requested.connect(self._on_pause_requested)
-        self._tray.resume_requested.connect(self._on_resume_requested)
-
-        # Autostart manager
-        self._autostart_manager = AutostartManager()
-
-        # Track previous state for STATE_CHANGE events
+        self._monitoring_loop = MonitoringLoop(
+            vision=self._vision,
+            sense_loop=self._sense_loop,
+            dt_seconds=TICK_INTERVAL_SECONDS,
+            calibration_sink=self._feed_calibration,
+        )
         self._last_state: PoseState | None = None
-        # Reference to open settings dialog (for calibration sampling)
         self._settings_dialog: SettingsDialog | None = None
-
-        # Initialize snooze state from persisted config
         self._snooze_manager.restore_persisted_state()
-
         self._app.aboutToQuit.connect(self._on_about_to_quit)
-        self._window.close_requested.connect(self._on_window_close_requested)
+        self._window.close_requested.connect(self._window.hide)
+
+    # --- Tray signal handlers ---
+    def _show_window(self) -> None:
+        self._window.show(), self._window.raise_(), self._window.activateWindow()
 
     def _on_pause_requested(self, duration_seconds: int | None) -> None:
-        """Handle pause/snooze request from tray menu."""
         self._snooze_manager.pause(duration_seconds)
         self._event_log.append(AppEventKind.SNOOZE_START, duration_seconds=duration_seconds)
 
     def _on_resume_requested(self) -> None:
-        """Handle resume request from tray menu."""
         self._snooze_manager.resume()
         self._event_log.append(AppEventKind.SNOOZE_END)
 
-    def _on_show_window_requested(self) -> None:
-        """Handle show-window request from tray left-click or menu item."""
-        self._window.show()
-        self._window.raise_()
-        self._window.activateWindow()
+    def _on_quit_requested(self) -> None:
+        if self._accumulator.is_snoozed:
+            self._event_log.append(AppEventKind.SNOOZE_END)
+        self._app.quit()
 
     def _on_settings_requested(self) -> None:
-        """Handle settings request from tray menu - show settings dialog."""
-        # Show the main window
-        self._window.show()
-        self._window.raise_()
-        self._window.activateWindow()
-
-        # Show settings dialog
+        self._show_window()
         self._settings_dialog = SettingsDialog(self._config_store, self._window)
         self._settings_dialog.settings_changed.connect(self._on_settings_changed)
         self._settings_dialog.calibration_completed.connect(self._on_calibration_completed)
         self._settings_dialog.exec()
-
-        # Check if camera needs to be switched
         new_camera_index = self._settings_dialog.get_pending_camera_index()
         if new_camera_index is not None:
             self._vision.set_camera_index(new_camera_index)
         self._settings_dialog = None
 
     def _on_settings_changed(self) -> None:
-        """Handle settings changed - reload config and apply autostart."""
         self._config = self._config_store.load()
-        self._sense_loop.update_classifier(**self._get_classify_kwargs())
-        self._autostart_manager.apply_config(self._config.autostart_enabled)
-        set_language(self._config.language)
-        self._window.refresh_language()
-        self._overlay.refresh_language()
-        self._tray.refresh_language()
+        self._settings_bridge.apply_config()
 
     def _on_calibration_completed(self, yaw: float, roll: float) -> None:
-        """Handle calibration completed - reload config to get updated neutral pose."""
-        # Log the calibration event
         self._event_log.append(
             AppEventKind.STATE_CHANGE,
-            state=f"CALIBRATED: yaw={yaw:+.1f}°, roll={roll:+.1f}°"
+            state=f"CALIBRATED: yaw={yaw:+.1f}°, roll={roll:+.1f}°",
         )
         self._config = self._config_store.load()
-        self._sense_loop.update_classifier(**self._get_classify_kwargs())
+        self._settings_bridge.apply_calibration(yaw, roll)
 
-    def _on_quit_requested(self) -> None:
-        """Handle quit request from tray menu."""
-        # Log if we were snoozed
-        if self._accumulator.is_snoozed:
-            self._event_log.append(AppEventKind.SNOOZE_END)
-        self._app.quit()
+    def _feed_calibration(self, yaw: float | None, roll: float | None) -> None:
+        if self._settings_dialog is None:
+            return
+        self._settings_dialog.update_current_pose(yaw, roll)
+        if yaw is not None and roll is not None:
+            self._settings_dialog.add_calibration_sample(yaw, roll)
 
-    def _on_window_close_requested(self) -> None:
-        """Window close minimizes to tray instead of quitting."""
-        # Hide the window but keep camera/detector resources for background monitoring
-        self._window.hide()
-
+    # --- Lifecycle ---
     def close(self) -> None:
-        """Close window and release resources (for app quit)."""
         self._window.close()
         self._vision.close()
 
     def _on_about_to_quit(self) -> None:
-        """Stop all timers and close the window before the application exits."""
         self._timer.stop()
         self._window.close()
 
-    def _get_classify_kwargs(self) -> dict:
-        """Return classify() kwargs from current config."""
-        return {
-            "neutral": NeutralPose(yaw=self._config.neutral_yaw, roll=self._config.neutral_roll),
-            "thresholds": Thresholds(yaw_deg=self._config.yaw_threshold, roll_deg=self._config.roll_threshold),
-        }
-
-    def _get_accumulator_config(self) -> AccumulatorConfig:
-        """Return accumulator config from current config."""
-        return AccumulatorConfig(
-            off_axis_streak_threshold_seconds=self._config.off_axis_streak_threshold_seconds,
-            off_axis_repeat_interval_seconds=self._config.off_axis_repeat_interval_seconds,
-            facing_threshold_seconds=self._config.facing_threshold_seconds,
-            eyest_threshold_seconds=self._config.eyest_threshold_seconds,
-        )
-
-    def _log_state_change(self, state: PoseState) -> None:
-        """Log STATE_CHANGE event if state differs from last."""
-        if state != self._last_state:
-            self._event_log.append(AppEventKind.STATE_CHANGE, state=state.value)
-            self._last_state = state
-
-    def _dispatch_prompt_event(self, event: SenseEvent) -> None:
-        """Dispatch a SenseLoop event to logging, overlay, and UI output."""
-        match event:
-            case CorrectionEvent(direction=direction):
-                dir_str = "LEFT" if direction == PoseState.OFF_AXIS_LEFT else "RIGHT"
-                self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="adjust", direction=dir_str)
-                self._overlay.show_correction(direction)
-            case GoodPostureEvent():
-                self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="good_posture")
-                self._overlay.show_good_posture()
-            case EyeRestEvent():
-                self._event_log.append(AppEventKind.PROMPT_FIRED, prompt="eye_rest")
-                self._overlay.show_eye_rest()
-            case WarningLevelEvent():
-                self._event_log.append(AppEventKind.WARNING_LEVEL_CHANGED, level=event.level.value, direction=event.direction)
-                self._window.set_warning_level(event)
-                if event.level == WarningLevel.CORRECTED:
-                    self._overlay.show_corrected()
-                elif event.level == WarningLevel.NORMAL:
-                    self._overlay.hide()
-
     def run(self) -> None:
-        """Show the window, open camera + detector, start the tick loop."""
         self._window.setWindowIcon(create_eye_icon(TrayIconState.ACTIVE))
         self._window.show()
         self._tray.show()
-
         result = self._vision.start()
         if result is not None:
             self._on_vision_unavailable(result)
         else:
             self._sense_loop.detector = self._vision.detector
-
         self._timer.timeout.connect(self._tick)
         self._timer.start()
-
         self._app.exec()
 
+    # --- Vision transitions ---
     def _on_vision_resumed(self) -> None:
-        """Camera transitioned from unavailable to available."""
         self._event_log.append(AppEventKind.CAMERA_RESUMED)
         self._tray.set_state(
             TrayIconState.ACTIVE if not self._accumulator.is_snoozed else TrayIconState.PAUSED
@@ -260,7 +180,6 @@ class AppController:
         self._window.clear_camera_unavailable_message()
 
     def _on_vision_unavailable(self, result: VisionUnavailable) -> None:
-        """Camera transitioned from available to unavailable, or initial open failed."""
         if result.detector_error is not None:
             self._event_log.append(AppEventKind.STATE_CHANGE, state=result.detector_error)
         else:
@@ -268,50 +187,33 @@ class AppController:
         self._tray.set_state(TrayIconState.UNAVAILABLE)
         self._window.show_camera_unavailable_message()
 
-    def _tick(self) -> None:
-        """One 10 Hz tick: read, detect, classify, accumulate, update UI."""
-        # Check if timed snooze has expired
-        self._snooze_manager.check_expiry()
-
-        match self._vision.tick():
-            case FrameReady(frame=frame, just_resumed=just_resumed):
-                if just_resumed:
-                    self._sense_loop.detector = self._vision.detector
-                    self._on_vision_resumed()
-                self._handle_frame(frame)
-            case VisionUnavailable() as unavailable:
-                self._handle_unavailable(unavailable)
-
-    def _handle_unavailable(self, result: VisionUnavailable) -> None:
-        """Reset the UI to its unavailable state and emit transition events."""
+    def _reset_window_to_neutral(self) -> None:
         self._window.set_warning_level(WarningLevelEvent(level=WarningLevel.NORMAL, direction=None))
         self._window.set_state(None, None, None)
-        if result.just_failed or result.detector_error is not None:
-            self._on_vision_unavailable(result)
 
-    def _handle_frame(self, frame: np.ndarray) -> None:
-        """Run detect/classify/accumulate against a captured frame and update UI."""
-        self._window.update_frame(frame)
+    # --- Tick ---
+    def _log_state_change(self, state: PoseState) -> None:
+        if state != self._last_state:
+            self._event_log.append(AppEventKind.STATE_CHANGE, state=state.value)
+            self._last_state = state
 
-        events = self._sense_loop.tick(frame, _DT_SECONDS)
-        current_yaw = self._sense_loop.current_yaw
-        current_roll = self._sense_loop.current_roll
-        current_state = self._sense_loop.current_state
-
-        if current_yaw is None or current_roll is None:
-            self._window.set_state(None, None, None)
-        else:
-            self._window.set_state(current_yaw, current_roll, current_state)
-
-        # Route pose updates to the settings dialog (if open) so it can update
-        # its real-time display and feed any active calibration session.
-        if self._settings_dialog is not None:
-            self._settings_dialog.update_current_pose(current_yaw, current_roll)
-            if current_yaw is not None and current_roll is not None:
-                self._settings_dialog.add_calibration_sample(current_yaw, current_roll)
-
-        # Log state changes
-        self._log_state_change(current_state)
-
-        for event in events:
-            self._dispatch_prompt_event(event)
+    def _tick(self) -> None:
+        self._snooze_manager.check_expiry()
+        processed = self._monitoring_loop.process_one()
+        if processed.vision_resumed:
+            self._on_vision_resumed()
+        elif processed.vision_just_failed or processed.vision_detector_error is not None:
+            self._on_vision_unavailable(
+                VisionUnavailable(
+                    just_failed=processed.vision_just_failed,
+                    detector_error=processed.vision_detector_error,
+                )
+            )
+        elif processed.frame is None:
+            self._reset_window_to_neutral()
+        if processed.frame is not None:
+            self._window.update_frame(processed.frame)
+        self._window.set_state(processed.yaw, processed.roll, processed.state)
+        self._monitoring_loop.feed_calibration(processed.yaw, processed.roll)
+        self._log_state_change(processed.state)
+        self._bus.dispatch(processed.events)
