@@ -18,21 +18,12 @@ from typing import Any, Optional, Protocol
 from .autostart import AutostartManager
 from .classifier import NeutralPose, Thresholds
 from .config_store import ConfigStore
-from .event_log import EventLog
 from .i18n import set_language
 from .main_window import MainWindow
 from .overlay import NotifierOverlay
 from .sense_loop import AccumulatorConfig, SenseLoop
 from .tray_controller import TrayController
 from .types import AppConfig, AppEventKind
-
-
-class SenseLoopLike(Protocol):
-    """Minimal interface the bridge needs from the sense loop."""
-
-    def update_classifier(
-        self, neutral: NeutralPose, thresholds: Thresholds
-    ) -> None: ...
 
 
 class SenseLoopWithAccumulator(Protocol):
@@ -59,10 +50,6 @@ class TrayLike(Protocol):
 
 class ConfigStoreLike(Protocol):
     def load(self) -> AppConfig: ...
-
-
-class EventLogLike(Protocol):
-    def append(self, kind: AppEventKind, **data: object) -> object: ...
 
 
 class AutostartLike(Protocol):

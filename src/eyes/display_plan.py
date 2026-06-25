@@ -40,9 +40,6 @@ BANNER_FG_SEVERE = "#FFFFFF"
 BANNER_BG_CORRECTED = "#00AA00"
 BANNER_FG_CORRECTED = "#FFFFFF"
 
-# Re-exported from runtime_timings.py for backward compatibility.
-# from .runtime_timings import CORRECTED_AUTO_DISMISS_MS  # noqa: E402
-
 
 @dataclass(frozen=True)
 class BadgePlan:

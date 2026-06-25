@@ -69,21 +69,7 @@ class ConfigStore:
 
     def _config_to_dict(self, config: AppConfig) -> dict[str, Any]:
         """Convert AppConfig to dict for YAML serialization."""
-        return {
-            "yaw_threshold": config.yaw_threshold,
-            "roll_threshold": config.roll_threshold,
-            "neutral_yaw": config.neutral_yaw,
-            "neutral_roll": config.neutral_roll,
-            "camera_index": config.camera_index,
-            "snooze_until_iso": config.snooze_until_iso,
-            "sound_enabled": config.sound_enabled,
-            "autostart_enabled": config.autostart_enabled,
-            "language": config.language,
-            "off_axis_streak_threshold_seconds": config.off_axis_streak_threshold_seconds,
-            "off_axis_repeat_interval_seconds": config.off_axis_repeat_interval_seconds,
-            "facing_threshold_seconds": config.facing_threshold_seconds,
-            "eyest_threshold_seconds": config.eyest_threshold_seconds,
-        }
+        return dataclasses.asdict(config)
 
     def _dict_to_config(self, data: dict[str, Any]) -> AppConfig:
         """Convert dict from YAML to AppConfig, using AppConfig defaults for missing keys."""
