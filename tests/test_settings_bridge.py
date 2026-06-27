@@ -55,6 +55,23 @@ class _FakeEngine:
         self._facing_threshold = 0.0
         self._eyest_threshold = 0.0
 
+    def reconfigure(
+        self,
+        *,
+        off_axis_streak_threshold_seconds: float | None = None,
+        off_axis_repeat_interval_seconds: float | None = None,
+        facing_threshold_seconds: float | None = None,
+        eyest_threshold_seconds: float | None = None,
+    ) -> None:
+        if off_axis_streak_threshold_seconds is not None:
+            self._off_axis_streak_threshold = off_axis_streak_threshold_seconds
+        if off_axis_repeat_interval_seconds is not None:
+            self._off_axis_repeat_interval = off_axis_repeat_interval_seconds
+        if facing_threshold_seconds is not None:
+            self._facing_threshold = facing_threshold_seconds
+        if eyest_threshold_seconds is not None:
+            self._eyest_threshold = eyest_threshold_seconds
+
 
 class TestApplyConfig:
     def test_calls_update_classifier(self) -> None:

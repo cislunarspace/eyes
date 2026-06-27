@@ -90,22 +90,15 @@ class SettingsBridge:
                 yaw_deg=config.yaw_threshold, roll_deg=config.roll_threshold
             ),
         )
-        # Rebuild the accumulator's timing thresholds by mutating the
-        # underlying engine. The engine exposes its setters via duck
-        # typing; we set the four timing fields if present.
+        # Rebuild the accumulator's timing thresholds via the engine's
+        # public reconfigure method.
         engine = self._sense_loop.engine
-        if hasattr(engine, "_off_axis_streak_threshold"):
-            engine._off_axis_streak_threshold = (
-                config.off_axis_streak_threshold_seconds
-            )
-        if hasattr(engine, "_off_axis_repeat_interval"):
-            engine._off_axis_repeat_interval = (
-                config.off_axis_repeat_interval_seconds
-            )
-        if hasattr(engine, "_facing_threshold"):
-            engine._facing_threshold = config.facing_threshold_seconds
-        if hasattr(engine, "_eyest_threshold"):
-            engine._eyest_threshold = config.eyest_threshold_seconds
+        engine.reconfigure(
+            off_axis_streak_threshold_seconds=config.off_axis_streak_threshold_seconds,
+            off_axis_repeat_interval_seconds=config.off_axis_repeat_interval_seconds,
+            facing_threshold_seconds=config.facing_threshold_seconds,
+            eyest_threshold_seconds=config.eyest_threshold_seconds,
+        )
 
         self._autostart.apply_config(config.autostart_enabled)
         set_language(config.language)

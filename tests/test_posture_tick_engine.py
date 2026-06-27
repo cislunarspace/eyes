@@ -8,6 +8,43 @@ from eyes.sense_loop import CorrectionEvent, EyeRestEvent, GoodPostureEvent, War
 from eyes.types import WarningLevel
 
 
+class TestReconfigure:
+    """reconfigure() updates thresholds and affects tick() behavior."""
+
+    def test_reconfigure_streak_threshold_affects_tick(self) -> None:
+        engine = PostureTickEngine()
+        # Default threshold is 0.3, so 0.2 dt does NOT fire.
+        events = engine.tick(PoseState.OFF_AXIS_LEFT, 0.2)
+        assert all(not isinstance(e, CorrectionEvent) for e in events)
+
+        engine.reconfigure(off_axis_streak_threshold_seconds=0.1)
+        events = engine.tick(PoseState.OFF_AXIS_LEFT, 0.2)
+        assert any(isinstance(e, CorrectionEvent) for e in events)
+
+    def test_reconfigure_facing_threshold_affects_tick(self) -> None:
+        engine = PostureTickEngine(
+            off_axis_streak_threshold_seconds=5.0,
+        )
+        # Default facing threshold is 300s, override to 2s.
+        engine.reconfigure(facing_threshold_seconds=2.0)
+
+        events = engine.tick(PoseState.FACING_SCREEN, 1.0)
+        assert all(not isinstance(e, GoodPostureEvent) for e in events)
+        events = engine.tick(PoseState.FACING_SCREEN, 1.0)
+        assert any(isinstance(e, GoodPostureEvent) for e in events)
+
+    def test_reconfigure_eyest_threshold_affects_tick(self) -> None:
+        engine = PostureTickEngine(
+            off_axis_streak_threshold_seconds=5.0,
+        )
+        engine.reconfigure(eyest_threshold_seconds=2.0)
+
+        events = engine.tick(PoseState.FACING_SCREEN, 1.0)
+        assert all(not isinstance(e, EyeRestEvent) for e in events)
+        events = engine.tick(PoseState.OFF_AXIS_LEFT, 1.0)
+        assert any(isinstance(e, EyeRestEvent) for e in events)
+
+
 class TestOffAxisStreak:
     """Off-axis streak triggers CorrectionEvent at threshold."""
 
