@@ -30,7 +30,7 @@ fn warning_and_severe_banners_use_directional_hints_and_tint_badge() {
         plan.banner.text_keys,
         vec![
             "main_window.please_face_screen",
-            "main_window.adjust_left_hint"
+            "main_window.adjust_right_hint"
         ]
     );
     assert_eq!(plan.badge.bg, "#FFD700");
@@ -39,7 +39,7 @@ fn warning_and_severe_banners_use_directional_hints_and_tint_badge() {
     let state = reduce_warning(state, WarningLevel::Severe, Some("right"));
     let plan = display_plan(&state);
     assert_eq!(plan.banner.bg, "#FF0000");
-    assert_eq!(plan.banner.text_keys[1], "main_window.adjust_right_hint");
+    assert_eq!(plan.banner.text_keys[1], "main_window.adjust_left_hint");
 }
 
 #[test]

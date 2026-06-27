@@ -161,9 +161,9 @@ fn badge_text_key(pose_state: PoseState) -> &'static str {
 
 fn direction_banner_text_keys(direction: Option<&str>) -> Vec<String> {
     let hint = if direction == Some("left") {
-        "main_window.adjust_left_hint"
-    } else {
         "main_window.adjust_right_hint"
+    } else {
+        "main_window.adjust_left_hint"
     };
     vec![
         "main_window.please_face_screen".to_string(),
