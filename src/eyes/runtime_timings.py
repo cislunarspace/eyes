@@ -5,7 +5,7 @@ here so the main loop, the calibration timer, and the display-plan
 auto-dismiss logic cannot drift out of sync.
 
 Changing the tick rate here changes it everywhere: the main QTimer,
-the MonitoringLoop's dt_seconds, the VisionInput's retry interval
+the main QTimer's dt_seconds, the VisionInput's retry interval
 (derived from the tick rate), and the calibration countdown timer.
 """
 

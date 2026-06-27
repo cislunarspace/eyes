@@ -1,6 +1,6 @@
 """AppController — thin assembler for the monitoring stack.
 
-Wires VisionInput, SenseLoop, MonitoringLoop, SenseEventBus,
+Wires VisionInput, SenseLoop, SenseEventBus,
 SnoozeManager, SettingsBridge, and the Qt UI together. The 10 Hz tick
 calls `_tick`; per-event fan-out is handled by SenseEventBus; the
 config-rebuild sequence is handled by SettingsBridge. This module
@@ -23,9 +23,8 @@ from .event_log import EventLog
 from .i18n import set_language
 from .icon_factory import create_eye_icon
 from .main_window import MainWindow
-from .monitoring_loop import MonitoringLoop
 from .overlay import NotifierOverlay
-from .sense_event_bus import SenseEventBus
+from .sense_event_bus import FrameProcessed, SenseEventBus
 from .sense_loop import AccumulatorConfig, SenseLoop
 from .settings_bridge import SettingsBridge
 from .settings_dialog import SettingsDialog
@@ -33,7 +32,7 @@ from .snooze_manager import SnoozeManager
 from .tray_controller import TrayController
 from .types import AppEventKind, TrayIconState, WarningLevel, WarningLevelEvent
 from .runtime_timings import CAMERA_RETRY_INTERVAL_TICKS, TICK_INTERVAL_MS, TICK_INTERVAL_SECONDS
-from .vision_input import VisionInput, VisionUnavailable
+from .vision_input import FrameReady, VisionInput, VisionUnavailable
 
 
 class AppController:
@@ -89,12 +88,6 @@ class AppController:
             self._accumulator,
             self._tray,
             on_snooze_end=lambda: self._event_log.append(AppEventKind.SNOOZE_END),
-        )
-        self._monitoring_loop = MonitoringLoop(
-            vision=self._vision,
-            sense_loop=self._sense_loop,
-            dt_seconds=TICK_INTERVAL_SECONDS,
-            calibration_sink=self._feed_calibration,
         )
         self._last_state: PoseState | None = None
         self._settings_dialog: SettingsDialog | None = None
@@ -199,21 +192,37 @@ class AppController:
 
     def _tick(self) -> None:
         self._snooze_manager.check_expiry()
-        processed = self._monitoring_loop.process_one()
-        if processed.vision_resumed:
-            self._on_vision_resumed()
-        elif processed.vision_just_failed or processed.vision_detector_error is not None:
-            self._on_vision_unavailable(
-                VisionUnavailable(
-                    just_failed=processed.vision_just_failed,
-                    detector_error=processed.vision_detector_error,
-                )
+        result = self._vision.tick()
+        if isinstance(result, FrameReady):
+            just_resumed = result.just_resumed
+            if just_resumed:
+                self._sense_loop.detector = self._vision.detector
+            events = self._sense_loop.tick(result.frame, TICK_INTERVAL_SECONDS)
+            processed = FrameProcessed(
+                frame=result.frame,
+                yaw=self._sense_loop.current_yaw,
+                roll=self._sense_loop.current_roll,
+                state=self._sense_loop.current_state,
+                events=list(events),
+                vision_resumed=just_resumed,
+                vision_just_failed=False,
+                vision_detector_error=None,
             )
-        elif processed.frame is None:
-            self._reset_window_to_neutral()
-        if processed.frame is not None:
+            if just_resumed:
+                self._on_vision_resumed()
             self._window.update_frame(processed.frame)
-        self._window.set_state(processed.yaw, processed.roll, processed.state)
-        self._monitoring_loop.feed_calibration(processed.yaw, processed.roll)
-        self._log_state_change(processed.state)
-        self._bus.dispatch(processed.events)
+            self._window.set_state(processed.yaw, processed.roll, processed.state)
+            self._feed_calibration(processed.yaw, processed.roll)
+            self._log_state_change(processed.state)
+            self._bus.dispatch(processed.events)
+        else:
+            just_failed = bool(getattr(result, "just_failed", False))
+            detector_error = getattr(result, "detector_error", None)
+            if just_failed or detector_error is not None:
+                self._on_vision_unavailable(result)
+            else:
+                self._reset_window_to_neutral()
+            self._window.set_state(None, None, PoseState.NO_FACE)
+            self._feed_calibration(None, None)
+            self._log_state_change(PoseState.NO_FACE)
+            self._bus.dispatch([])

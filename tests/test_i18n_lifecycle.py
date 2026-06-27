@@ -50,7 +50,6 @@ def _mock_controller_deps(config: MagicMock | None = None):
         patch("eyes.controller.AutostartManager"),
         patch("eyes.controller.QTimer"),
         patch("eyes.controller.create_eye_icon"),
-        patch("eyes.controller.MonitoringLoop"),
         patch("eyes.controller.SenseEventBus"),
         patch("eyes.controller.SettingsBridge"),
     ):

@@ -3,17 +3,16 @@
 The behavior of each sub-module is tested in its own file:
 
   - test_sense_event_bus.py   — per-event fan-out
-  - test_monitoring_loop.py   — per-tick match
   - test_settings_bridge.py   — config-rebuild sequence
 
 This file focuses on the controller's responsibility as a thin assembler:
-the Qt signal wiring, the tick flow that connects loop → window → bus,
+the Qt signal wiring, the tick flow that connects vision → sense loop → bus,
 and the vision-resume / unavailable transitions.
 
 The original 22-test regression baseline is preserved as integration
 behavior. The 5 "MainWindow is a pure view" tests stay here. The 12
 "prompt dispatch" + "camera recovery" tests are now expressed against
-the new seams (SenseEventBus + MonitoringLoop). The 2 end-to-end
+the new seams (SenseEventBus). The 2 end-to-end
 warning-banner tests stay here because they exercise the full path
 from SenseLoop through SenseEventBus through MainWindow.
 """
