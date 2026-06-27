@@ -32,8 +32,8 @@ pub fn set_camera_index(index: u32, state: State<'_, SharedAppState>) -> Result<
     Ok(())
 }
 
-/// Spawn background worker that ticks at ~10 Hz and emits events to the frontend.
-/// Called once from setup. The worker runs on a dedicated thread.
+/// 后台工作线程，约 10 Hz 驱动 tick，向前端发送事件。
+/// setup 时调用一次，运行在独立线程上。
 #[allow(unused_variables)]
 pub fn spawn_worker(app_handle: AppHandle) {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -79,7 +79,7 @@ pub fn spawn_worker(app_handle: AppHandle) {
 
             #[cfg(feature = "opencv-camera")]
             {
-                // ponytail: 5-second camera retry — reopen if we lost it or haven't tried yet
+                // ponytail: 5 秒摄像头重试 — 丢失或未打开时重新尝试
                 if worker.is_none() && retry_at.is_some_and(|due| tick_start >= due) {
                     match OpenCvCamera::open(0) {
                         Ok(cam) => {
@@ -121,7 +121,7 @@ pub fn spawn_worker(app_handle: AppHandle) {
                 }
             }
 
-            // Sleep the remainder of the 100ms tick window
+            // 补足 100ms tick 窗口的剩余时间
             let elapsed = tick_start.elapsed();
             let window = Duration::from_millis(100);
             if elapsed < window {
@@ -130,6 +130,6 @@ pub fn spawn_worker(app_handle: AppHandle) {
         }
     });
 
-    // ponytail: leaked Arc for simple shutdown — proper Drop impl if needed later
+    // ponytail: 泄漏 Arc 实现简单关闭 — 需要清理时再加 Drop 实现
     std::mem::forget(running);
 }

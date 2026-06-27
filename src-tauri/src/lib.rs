@@ -32,7 +32,7 @@ pub fn run() {
             get_status,
             get_config,
             set_camera_index,
-            // ponytail: more commands added as we wire M5/M6
+            // ponytail: M5/M6 接线后继续添加更多命令
         ])
         .run(tauri::generate_context!())
         .expect("error while running Eyes");

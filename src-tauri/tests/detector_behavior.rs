@@ -31,6 +31,6 @@ fn detector_trait_can_be_implemented_by_fake_for_tests() {
             roll: 1.0
         }),
     );
-    // empty detector returns None
+    // 空 detector 返回 None
     assert_eq!(fake.detect(&[], 0, 0), None,);
 }

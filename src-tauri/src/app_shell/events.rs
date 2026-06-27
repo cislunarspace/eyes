@@ -36,8 +36,8 @@ pub fn emit_worker_event<R: Runtime>(app: &AppHandle<R>, event: WorkerEvent) {
             );
         }
         WorkerEvent::PreviewUnavailable => {
-            // preview encoding failed — still have camera, just can't show frame
-            // no UI event needed for this internal state
+            // 预览编码失败 — 摄像头仍在，只是无法展示帧
+            // 内部状态，无需发送 UI 事件
         }
     }
 }

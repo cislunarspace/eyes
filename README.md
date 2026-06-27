@@ -2,15 +2,14 @@
 
 # 👁️ Eyes
 
-**Smart posture & eye-care companion for your desktop**
+**桌面坐姿监测与护眼提醒工具**
 
+[![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=white)](https://tauri.app/)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
-[![MediaPipe](https://img.shields.io/badge/Pose-MediaPipe-FF6F00?logo=google&logoColor=white)](https://ai.google.dev/edge/mediapipe)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/ouyangjiahong/eyes)
 
-*A desktop application that uses your webcam to monitor head pose in real time — reminding you to sit straight and rest your eyes.*
+*通过摄像头实时监测头部姿态，提示你保持正确坐姿、适时休息。*
 
 [English](#features) · [中文文档](README_zh.md)
 
@@ -18,344 +17,301 @@
 
 ---
 
-## Features
+## 功能特性
 
-- **Real-time head pose detection** via webcam using MediaPipe FaceLandmarker
-- **Yaw and roll tracking** - yaw (left/right head turn) and roll (head tilt) reported live
-- **Pose state classification** - FACING_SCREEN, OFF_AXIS_LEFT, OFF_AXIS_RIGHT, OFF_AXIS_OTHER, NO_FACE
-- **Neutral pose calibration** - hold a relaxed forward-facing pose for 5 seconds to set your personal baseline
-- **Configurable thresholds** - adjust yaw and roll tolerance via Settings dialog
-- **System tray** - runs in background; close the window to minimize to tray
-- **Snooze** - pause reminders for 30 min, 1 hour, or indefinitely via tray menu
-- **Periodic good-posture praise** - cumulative facing-time timer celebrates at 5 min
-- **Eye rest reminders** - cumulative face-detected timer reminds at 15 min
-- **Debounced corrective prompts** - first prompt after 5 s off-axis, then repeats every 30 s
-- **Settings dialog** - GUI for thresholds, calibration, camera, sound, and autostart
-- **Camera retry** - automatically retries every 5 s when camera is unavailable
-- **Autostart** - optionally launch on OS login
+- **实时头部姿态检测** — 通过摄像头追踪偏航角（左右转头）和滚转角（头部倾斜）
+- **姿态状态分类** — 正对屏幕、左偏、右偏、其他偏转、无人脸
+- **中性姿态校准** — 保持放松的正对姿势 5 秒，设定个人基准
+- **可配置阈值** — 通过设置对话框调整偏航和滚转容差
+- **系统托盘** — 后台运行，关闭窗口即最小化到托盘
+- **静默模式** — 通过托盘菜单暂停提醒 30 分钟、1 小时或手动恢复
+- **坐姿表扬** — 累计正对屏幕 5 分钟后给予鼓励提示
+- **护眼提醒** — 累计检测到人脸 15 分钟后提醒远眺
+- **阶梯式纠正** — 偏离 5 秒首次提示，之后每 30 秒重复
+- **摄像头重试** — 摄像头不可用时每 5 秒自动重试
+- **开机自启** — 可选随系统启动
 
-## Requirements
+> 当前处于 Rust/Tauri 重写阶段。Domain 层（校准、分类、计时、事件日志）和摄像头预览已完成。
+> 姿态检测（M4）仍使用 Python/MediaPipe，正在接入 ONNX Runtime。
 
-| Requirement | Details |
-| ----------- | ------- |
-| **OS** | Windows, macOS, or Linux |
-| **Python** | 3.12 or higher |
-| **Camera** | Any webcam accessible via OpenCV (default index 0) |
+## 环境要求
+
+| 依赖 | 说明 |
+|------|------|
+| **OS** | Windows、macOS 或 Linux |
+| **Rust** | 1.80+（编译 Tauri 后端） |
+| **Node.js** | 18+（构建前端） |
+| **Python** | 3.12+（姿态检测，M4 完成后移除） |
+| **摄像头** | 任意可通过 OpenCV 访问的摄像头（默认索引 0） |
 
 ---
 
-## Quick Start
+## 快速开始
 
-### Install with uv (recommended)
-
-```bash
-git clone https://github.com/ouyangjiahong/eyes.git
-cd eyes
-uv sync          # create venv & install dependencies
-uv run python main.py
-```
-
-### Install with pip
+### Rust/Tauri 开发（推荐）
 
 ```bash
 git clone https://github.com/ouyangjiahong/eyes.git
 cd eyes
-python -m venv .venv
 
-# Activate virtual environment
-source .venv/bin/activate  # Linux / macOS
-.venv\Scripts\activate     # Windows
+# 安装前端依赖
+npm install
 
-pip install -e .
-python main.py
+# 开发模式运行（热重载前端 + Rust 后端）
+npm run tauri dev
+
+# 构建发布包
+npm run tauri build
 ```
 
-### Specify a camera
+### Python 开发（用于姿态检测）
 
 ```bash
-python main.py        # default camera (index 0)
-python main.py 1      # second camera
-```
-
-### Development install
-
-```bash
-git clone https://github.com/ouyangjiahong/eyes.git
 cd eyes
-uv sync --extra dev   # or: pip install -e ".[dev]"
+uv sync
 uv run python main.py
 ```
 
 ---
 
-## Usage
+## 使用说明
 
-The application opens a window showing:
+应用打开后显示：
 
-- **Live webcam preview** - your camera feed
-- **Colored badge** - current pose state (green = facing screen, red = off-axis, amber = roll deviation, grey = no face)
-- **Angle readout** - live yaw and roll in degrees (e.g. `yaw: -3.2°   roll: +1.1°`)
+- **实时摄像头预览** — 你的摄像头画面
+- **彩色标签** — 当前姿态状态（绿色 = 正对屏幕，红色 = 偏转，琥珀色 = 滚转偏差，灰色 = 无人脸）
+- **角度读数** — 实时偏航角和滚转角（例如 `yaw: -3.2°   roll: +1.1°`）
 
-### System Tray
+### 系统托盘
 
-Closing the window minimizes the app to the system tray instead of quitting. The tray icon indicates the current state:
+关闭窗口不会退出应用，而是最小化到系统托盘。托盘图标反映当前状态：
 
-| Icon | State | Description |
-| ---- | ----- | ----------- |
-| 🟢 Green | Active | App is running and monitoring |
-| 🟡 Yellow | Paused | Snooze is active |
-| ⚪ Grey | Unavailable | Camera is unavailable |
+| 图标 | 状态 | 说明 |
+|------|------|------|
+| 🟢 绿色 | 运行中 | 正在监测 |
+| 🟡 黄色 | 已暂停 | 静默模式生效 |
+| ⚪ 灰色 | 不可用 | 摄像头不可用 |
 
-**Tray menu options:**
+**托盘菜单：**
 
-- **Snooze 30 min** - Snooze for 30 minutes
-- **Snooze 1 hour** - Snooze for 1 hour
-- **Snooze indefinitely** - Snooze until manually resumed
-- **Resume** - Resume monitoring (only enabled while snoozed)
-- **Settings** - Open Settings dialog
-- **Quit** - Quit the application completely
+- **静默 30 分钟** / **静默 1 小时** / **无限静默** — 暂停提醒
+- **恢复** — 提前结束静默
+- **设置** — 打开设置对话框
+- **退出** — 完全退出应用
 
-Snooze settings persist across app restarts.
+### 中性姿态校准
 
-### Neutral Pose Calibration
-
-Hold a relaxed forward-facing pose for 5 seconds while the app is running. The app detects this stable forward-facing position and uses it as your personal baseline for all deviation checks. This makes the app work accurately regardless of how you naturally sit relative to the camera.
-
-Alternatively, use the **Calibrate** button in the Settings dialog.
+应用运行时保持放松的正对姿势 5 秒，应用会检测到这个稳定位置并作为你的个人基准。也可以在**设置**里点击**校准**按钮。
 
 ---
 
-## Settings
+## 设置
 
-Open Settings via the tray menu.
+通过托盘菜单打开设置。
 
-| Setting | Description |
-| ------- | ----------- |
-| Yaw threshold | Head turn tolerance, 5–30°. Beyond this → off-axis. |
-| Roll threshold | Head tilt tolerance, 5–30°. Beyond this → roll deviation. |
-| Neutral pose | Current calibrated baseline. Click **Calibrate** to recalibrate (hold forward-facing for 5 s). |
-| Camera | Select which camera to use (0 = default webcam). |
-| Sound | Toggle prompt sounds on/off. |
-| Autostart | Toggle OS autostart on login. |
+| 设置项 | 说明 |
+|--------|------|
+| 偏航阈值 | 转头容差，5–30°。超出即判定偏转。 |
+| 滚转阈值 | 头部倾斜容差，5–30°。超出即判定滚转偏差。 |
+| 中性姿态 | 当前校准基准。点击**校准**重新设定（保持正对 5 秒）。 |
+| 摄像头 | 选择使用的摄像头（0 = 默认）。 |
+| 声音 | 开关提示音效。 |
+| 开机自启 | 开关系统启动时自动运行。 |
 
 ---
 
-## Configuration
+## 配置文件
 
-Settings are persisted to `~/.config/eyes/config.yaml` (via [platformdirs](https://pypi.org/project/platformdirs/)). You can edit this file directly or use the Settings dialog.
+设置保存在 `~/.config/eyes/config.yaml`（Rust 版使用 `dirs::config_dir()`）。可以直接编辑或通过设置对话框修改。
 
 ```yaml
-yaw_threshold: 15.0        # Head turn tolerance in degrees
-roll_threshold: 10.0       # Head tilt tolerance in degrees
-neutral_yaw: 0.0           # Calibrated baseline yaw (set by calibration)
-neutral_roll: 0.0          # Calibrated baseline roll (set by calibration)
-camera_index: 0            # Webcam index to use
-snooze_until_iso: null     # Snooze expiry (ISO 8601), null = not snoozed, "indefinite" = manual resume only
-sound_enabled: false       # Enable/disable prompt sounds
-autostart_enabled: false   # OS autostart on login
-language: zh-CN            # UI language
+yaw_threshold: 15.0        # 偏航容差（度）
+roll_threshold: 10.0       # 滚转容差（度）
+neutral_yaw: 0.0           # 校准基准偏航
+neutral_roll: 0.0          # 校准基准滚转
+camera_index: 0            # 摄像头索引
+snooze_until_iso: null     # 静默到期时间（ISO 8601），null = 未静默
+sound_enabled: false       # 提示音开关
+autostart_enabled: false   # 开机自启开关
+language: zh-CN            # UI 语言
 ```
 
 ---
 
-## Architecture
+## 架构
 
-### Project Structure
+### 项目结构
 
 ```text
 eyes/
-├── models/
-│   └── face_landmarker.task    # MediaPipe face landmark model
-├── src/eyes/
-│   ├── __init__.py             # Package entry point, version
-│   ├── camera.py               # CameraSource — webcam capture via OpenCV
-│   ├── detector.py             # HeadPoseDetector — MediaPipe wrapper, returns (yaw, roll)
-│   ├── classifier.py           # PoseClassifier + NeutralPose + Thresholds + classify()
-│   ├── accumulator.py          # AccumulatorEngine — off-axis streak + S4/S5 timers
-│   ├── overlay.py              # NotifierOverlay — always-on-top correction prompts
-│   ├── config_store.py         # ConfigStore — atomic YAML config persistence
-│   ├── settings_dialog.py      # SettingsDialog — GUI for thresholds, calibration, camera, sound, autostart
-│   ├── tray_controller.py      # TrayController — system tray icon + snooze menu
-│   ├── event_log.py            # EventLog — session event logging
-│   ├── autostart.py            # AutostartManager — OS autostart integration
-│   ├── calibration.py          # PoseSample + compute_median_pose()
-│   ├── types.py                # AppConfig + AppEventKind
-│   ├── main_window.py          # MainWindow — PySide6 GUI
-│   └── controller.py           # AppController — 10 Hz tick loop
-├── tests/                       # pytest tests
+├── src-tauri/                   # Rust 后端 (Tauri 2)
+│   ├── src/
+│   │   ├── lib.rs               # 应用入口、Tauri Builder 配置
+│   │   ├── app_state.rs         # 共享状态容器
+│   │   ├── commands.rs          # Tauri commands + 后台 worker
+│   │   ├── app_shell/
+│   │   │   ├── contract.rs      # 托盘/窗口决策常量
+│   │   │   ├── desktop.rs       # Tauri 原生 API 集成
+│   │   │   └── events.rs        # WorkerEvent → Tauri emit
+│   │   ├── domain/
+│   │   │   ├── calibration.rs   # 校准会话 + 中位数计算
+│   │   │   ├── classifier.rs    # 姿态分类纯函数
+│   │   │   ├── config.rs        # YAML 配置持久化
+│   │   │   ├── display_plan.rs  # 提示内容生成
+│   │   │   ├── event_log.rs     # JSONL 事件日志
+│   │   │   ├── posture_tick_engine.rs  # 时间累积状态机
+│   │   │   └── snooze.rs        # 静默状态评估
+│   │   └── monitoring/
+│   │       ├── detector.rs      # Detector trait
+│   │       ├── preview.rs       # Frame → PNG data URL
+│   │       ├── opencv_camera.rs # OpenCV 摄像头实现
+│   │       └── worker.rs        # 后台 worker 定义
+│   └── tests/                   # 行为测试（42 个）
+├── src/eyes/                    # Python 前代代码（仍可用）
 ├── docs/
-│   └── adr/                    # Architecture Decision Records
-├── main.py                      # CLI entry point
-└── pyproject.toml
+│   ├── adr/                     # 架构决策记录
+│   └── prd/                     # 产品需求文档
+└── workflows/                   # Agent 工作流文档
 ```
 
-### Module Responsibilities
-
-| Module | Responsibility |
-|--------|----------------|
-| `camera.py` | Opens/retry/releases `cv2.VideoCapture`. Caller drives re-opening via `retry_open()`. |
-| `detector.py` | Wraps MediaPipe `FaceLandmarker` in VIDEO mode. Returns `Optional[HeadPose]`. |
-| `classifier.py` | Pure function `classify(pose, neutral, thresholds) → PoseState`. `pose=None` returns `NO_FACE`. |
-| `accumulator.py` | Pure state machine: off-axis streak, S4 (facing time), S5 (presence time). Driven by external dt ticks. |
-| `overlay.py` | Frameless always-on-top widget for correction prompts. Auto-dismisses after 4 seconds. |
-| `config_store.py` | Atomic YAML read/write via temp-file-then-rename. |
-| `settings_dialog.py` | PySide6 dialog with sliders, calibration button, camera selector, toggles. |
-| `tray_controller.py` | `QSystemTrayIcon` with pause/resume/settings/quit menu. |
-| `event_log.py` | Session event logger (state changes, prompts, camera events, snooze). |
-| `autostart.py` | OS-specific autostart registration/removal. |
-| `calibration.py` | `compute_median_pose()` — median of `PoseSample` list. |
-| `types.py` | `AppConfig` (frozen dataclass), `AppEventKind` (enum). |
-| `main_window.py` | `QMainWindow`. Owns `CameraSource` and `HeadPoseDetector`. Cleans up on close. |
-| `controller.py` | Owns the 10 Hz `QTimer`. Calls camera read → detector → classifier → accumulator → window update each tick. |
-
-### Data Flow
+### 数据流
 
 ```text
-Webcam frame (BGR, uint8)
-  → CameraSource.read()
-  → HeadPoseDetector.detect(frame)
-    → MediaPipe FaceLandmarker (VIDEO mode)
-    → 4×4 transformation matrix → 3×3 rotation block → euler angles
-    → Optional[HeadPose(yaw, roll)]
-  → PoseClassifier.classify(pose, neutral, thresholds)
-    → compares against NeutralPose + Thresholds
-    → PoseState (one of 5 states)
-  → AccumulatorEngine.tick(state, dt)
-    → tracks off-axis streak → fires correction if due
-    → tracks S4/S5 accumulators → fires praise/eye-rest if due
-  → MainWindow.set_state(yaw, roll, state)
-    → updates readout label
-    → updates badge color + text
-  → MainWindow.update_frame(frame)
-    → converts BGR → RGB → QImage → QPixmap
-    → displays on video label
-  → NotifierOverlay (if triggered by AccumulatorEngine)
-    → shows always-on-top correction prompt
+摄像头帧 (RGB)
+  → OpenCvCamera.read_frame()
+  → Detector.detect(rgb, width, height)        # M4 ONNX 待接入
+    → Option<HeadPose(yaw, roll)>
+  → PostureTickEngine.on_pose(pose, now)
+    → classify → 映射到 PoseState
+    → 计时器推进 → 生成提示列表
+    → 更新 SnoozeState
+  → DisplayPlan::from_pose_state(pose, warning, snooze)
+    → 生成 UI 提示内容
+  → emit_worker_event() → 前端
 ```
 
-Loop runs at 10 Hz (100 ms per tick).
+循环频率约 10 Hz（每 tick 100ms）。
 
-### State Machine
+### 状态机
 
 ```text
 ┌─────────────────┐
-│  NO_FACE        │ ← no face in frame
+│  NoFace         │ ← 画面中无人脸
 └────────┬────────┘
-         │ face detected
+         │ 检测到人脸
          ▼
 ┌─────────────────────────────────┐
-│  FACING_SCREEN                  │ ← |yaw_dev| ≤ yaw_threshold AND |roll_dev| ≤ roll_threshold
-│  (neutral.yaw, neutral.roll)    │
+│  FacingScreen                   │ ← |偏航偏差| ≤ 偏航阈值 且 |滚转偏差| ≤ 滚转阈值
 └────────┬────────────────────────┘
-         │ |yaw_dev| > yaw_threshold
+         │ |偏航偏差| > 偏航阈值
          ▼
 ┌─────────────────────────────────┐
-│  OFF_AXIS_LEFT  ← yaw_dev < 0   │ ← head turned to user's own left
-│  OFF_AXIS_RIGHT ← yaw_dev > 0   │ ← head turned to user's own right
+│  OffAxisLeft  ← 偏差 < 0        │ ← 头转向用户左侧
+│  OffAxisRight ← 偏差 > 0        │ ← 头转向用户右侧
 └─────────────────────────────────┘
          │
-         │ |yaw_dev| ≤ yaw_threshold BUT |roll_dev| > roll_threshold
+         │ |偏航偏差| ≤ 偏航阈值 但 |滚转偏差| > 滚转阈值
          ▼
 ┌─────────────────────────────────┐
-│  OFF_AXIS_OTHER                 │ ← roll-only deviation (tilted onto shoulder)
+│  OffAxisOther                   │ ← 仅滚转偏差（头歪向肩膀）
 └─────────────────────────────────┘
 ```
 
-Note: OFF_AXIS_LEFT and OFF_AXIS_RIGHT take priority over OFF_AXIS_OTHER when both yaw and roll are out of threshold.
+当偏航和滚转同时超阈值时，OffAxisLeft/Right 优先于 OffAxisOther。
 
-### Timers and Prompts
+### 计时器与提示
 
-| Timer | Trigger | Reset | Behavior |
-| ----- | ------- | ----- | -------- |
-| **Off-Axis Streak** | OFF_AXIS_LEFT or OFF_AXIS_RIGHT | Returns to FACING_SCREEN or NO_FACE | First corrective prompt at 5 s. Repeats every 30 s while still off-axis. |
-| **Facing Time (S4)** | FACING_SCREEN | Does NOT reset on brief deviation; only pauses | At 300 s cumulative facing time → praise prompt. Resets to 0 after firing. |
-| **Presence Time (S5)** | Any face-detected state (not NO_FACE) | Does NOT reset on NO_FACE; only pauses | At 900 s cumulative presence → eye rest reminder. Resets to 0 after firing. |
+| 计时器 | 触发条件 | 重置条件 | 行为 |
+|--------|----------|----------|------|
+| **偏转连续计时** | OffAxisLeft 或 OffAxisRight | 回到 FacingScreen 或 NoFace | 5 秒首次纠正提示，之后每 30 秒重复 |
+| **正对时间 (S4)** | FacingScreen | 短暂偏离不重置，仅暂停 | 累计 300 秒 → 表扬提示。触发后归零 |
+| **在场时间 (S5)** | 任一检测到人脸的状态 | NoFace 不重置，仅暂停 | 累计 900 秒 → 护眼提醒。触发后归零 |
 
-**Snooze behavior:** When snooze is active, all timers and accumulators freeze at their current values (no progress, no regression). Resuming unblocks everything from where it left off.
+**静默行为：** 静默生效时所有计时器冻结，不前进也不后退。恢复后从冻结点继续。
 
-### Design Decisions (ADRs)
+### 设计决策 (ADR)
 
-See `docs/adr/` for full ADR documents:
+详见 `docs/adr/`：
 
-- **ADR-0001** - Detect yaw and roll only; ignore pitch and eye gaze.
-- **ADR-0002** - Cumulative time timers (wall-clock time not used).
-- **ADR-0003** - MediaPipe for head pose.
-- **ADR-0004** - Custom floating window over OS toast.
+- **ADR-0001** — 只检测偏航和滚转，忽略俯仰和眼动
+- **ADR-0002** — 累计时间计时器（不用挂钟时间）
+- **ADR-0003** — 使用 MediaPipe 做头部姿态检测
+- **ADR-0004** — 自定义浮动窗口替代系统通知
+- **ADR-0005** — Rust 重写方向
 
 ---
 
-## Development
+## 开发
 
-### Setup
+### 环境搭建
 
 ```bash
-# With uv (recommended)
+# Rust 后端
+rustup default stable
+
+# 前端
+npm install
+
+# Python（姿态检测，可选）
 uv sync --extra dev
-
-# With pip
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-.venv\Scripts\activate     # Windows
-pip install -e ".[dev]"
 ```
 
-### Running Tests
+### 运行测试
 
 ```bash
+# Rust 行为测试
+cd src-tauri && cargo test
+
+# Python 测试
 pytest
-pytest --cov=src --cov-report=term-missing
 ```
 
-### Code Quality
+### 代码检查
 
 ```bash
-ruff check src/
+cd src-tauri && cargo clippy
 ```
 
 ---
 
-## FAQ / Troubleshooting
+## 常见问题
 
-### The app keeps running after closing the window
+### 关闭窗口后应用还在运行
 
-This is expected. Closing the window minimizes the app to the system tray. To fully quit, click **Quit** in the tray menu.
+这是预期行为。关闭窗口会最小化到系统托盘。要完全退出，点击托盘菜单的**退出**。
 
-### Camera is in use by another application
+### 摄像头被其他应用占用
 
-The app retries every 5 seconds automatically. The tray icon turns grey while retrying. Close the conflicting app (Zoom, Teams, etc.) and the app will recover.
+应用每 5 秒自动重试，托盘图标变为灰色。关闭占用摄像头的应用（Zoom、Teams 等）后会自动恢复。
 
-### Correction prompts keep appearing
+### 纠正提示一直出现
 
-You need to recalibrate your neutral pose. Face the screen in a relaxed posture for 5 seconds, or use **Settings → Calibrate**.
+需要重新校准中性姿态。面对屏幕保持放松姿势 5 秒，或在**设置**里点击**校准**。
 
-### Thresholds feel too strict / too loose
+### 阈值太严 / 太松
 
-Open **Settings** from the tray menu and adjust the **Yaw threshold** and **Roll threshold** sliders.
+从托盘菜单打开**设置**，调整**偏航阈值**和**滚转阈值**滑块。
 
-### How does snooze work?
+### 静默模式如何工作？
 
-Click the tray icon, select **Snooze 30 min**, **Snooze 1 hour**, or **Snooze indefinitely**. During snooze the tray icon turns yellow and all timers freeze. Click **Resume** to end snooze early. Timed snoozes expire automatically.
+点击托盘图标，选择**静默 30 分钟**、**静默 1 小时**或**无限静默**。静默期间托盘图标变黄，所有计时器冻结。点击**恢复**提前结束。定时静默会自动到期。
 
-### What is the good-posture praise?
+### 坐姿表扬是什么？
 
-After 300 s (5 min) of cumulative facing-screen time, you get an encouraging prompt. The timer pauses (not resets) when you look away.
+累计正对屏幕 300 秒（5 分钟）后显示鼓励提示。目光移开时计时暂停（不归零）。
 
-### What is the eye-rest reminder?
+### 护眼提醒是什么？
 
-After 900 s (15 min) of cumulative face-detected time, you get a "look into the distance" reminder. Leaving the camera pauses the timer without resetting it.
+累计检测到人脸 900 秒（15 分钟）后显示远眺提醒。离开摄像头时计时暂停（不归零）。
 
-### No face detected
+### 检测不到人脸
 
-Make sure:
+确认：
 
-- Your face is clearly visible with adequate lighting
-- The camera is aimed at your face, roughly at the same height
-- You are within 2 meters of the camera
+- 脸部清晰可见，光线充足
+- 摄像头对准脸部，大致与脸同高
+- 距摄像头 2 米以内
 
-### Model download failed
+## 许可证
 
-MediaPipe downloads the face landmark model on first run. If it fails, the app retries on each subsequent run. The model URL is in `src/eyes/detector.py`.
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for the full text.
+MIT License，详见 [LICENSE](LICENSE)。
