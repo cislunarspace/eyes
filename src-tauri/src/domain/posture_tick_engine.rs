@@ -1,6 +1,6 @@
 use super::classifier::PoseState;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum WarningLevel {
     Normal,
     Warning,
@@ -10,10 +10,15 @@ pub enum WarningLevel {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SenseEvent {
-    Correction { direction: PoseState },
+    Correction {
+        direction: PoseState,
+    },
     GoodPosture,
     EyeRest,
-    WarningLevelChanged { level: WarningLevel, direction: Option<String> },
+    WarningLevelChanged {
+        level: WarningLevel,
+        direction: Option<String>,
+    },
 }
 
 const DEFAULT_OFF_AXIS_STREAK_THRESHOLD: f64 = 0.3;
@@ -96,7 +101,10 @@ impl PostureTickEngine {
                     self.last_emit_at = Some(self.off_axis_streak);
                     self.repeat_due_at = Some(self.off_axis_streak + self.off_axis_repeat_interval);
                     events.push(SenseEvent::Correction { direction: state });
-                } else if self.repeat_due_at.is_some_and(|due_at| self.off_axis_streak >= due_at) {
+                } else if self
+                    .repeat_due_at
+                    .is_some_and(|due_at| self.off_axis_streak >= due_at)
+                {
                     self.repeat_due_at = Some(self.off_axis_streak + self.off_axis_repeat_interval);
                     events.push(SenseEvent::Correction { direction: state });
                 }
@@ -125,8 +133,15 @@ impl PostureTickEngine {
 
         match state {
             PoseState::OffAxisLeft | PoseState::OffAxisRight => {
-                let direction = if state == PoseState::OffAxisLeft { "left" } else { "right" };
-                if matches!(self.warning_level, WarningLevel::Normal | WarningLevel::Corrected) {
+                let direction = if state == PoseState::OffAxisLeft {
+                    "left"
+                } else {
+                    "right"
+                };
+                if matches!(
+                    self.warning_level,
+                    WarningLevel::Normal | WarningLevel::Corrected
+                ) {
                     self.warning_level = WarningLevel::Warning;
                     self.off_axis_continuous_seconds = dt;
                     events.push(SenseEvent::WarningLevelChanged {
@@ -147,7 +162,10 @@ impl PostureTickEngine {
                 }
             }
             PoseState::FacingScreen => {
-                if matches!(self.warning_level, WarningLevel::Warning | WarningLevel::Severe) {
+                if matches!(
+                    self.warning_level,
+                    WarningLevel::Warning | WarningLevel::Severe
+                ) {
                     self.warning_level = WarningLevel::Corrected;
                     self.corrected_remaining_seconds = 2.0;
                     self.off_axis_continuous_seconds = 0.0;

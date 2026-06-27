@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::{fs::{self, OpenOptions}, io::{self, Write}, path::{Path, PathBuf}, sync::Mutex};
+use std::{
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use time::{format_description::well_known::Iso8601, OffsetDateTime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +56,10 @@ impl EventLog {
             _ => Map::new(),
         };
         event.insert("ts".to_string(), Value::String(timestamp_iso()));
-        event.insert("kind".to_string(), serde_json::to_value(kind).expect("event kind serializes"));
+        event.insert(
+            "kind".to_string(),
+            serde_json::to_value(kind).expect("event kind serializes"),
+        );
         let line = serde_json::to_string(&event)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let mut file = OpenOptions::new()

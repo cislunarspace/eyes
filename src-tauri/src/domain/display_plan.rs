@@ -38,7 +38,10 @@ pub fn initial_state() -> DisplayState {
 }
 
 pub fn reduce_pose(state: DisplayState, pose_state: PoseState) -> DisplayState {
-    DisplayState { pose_state, ..state }
+    DisplayState {
+        pose_state,
+        ..state
+    }
 }
 
 pub fn reduce_warning(
@@ -47,8 +50,16 @@ pub fn reduce_warning(
     direction: Option<&str>,
 ) -> DisplayState {
     match warning_level {
-        WarningLevel::Normal => DisplayState { warning_level, direction: None, ..state },
-        WarningLevel::Corrected => DisplayState { warning_level, direction: None, ..state },
+        WarningLevel::Normal => DisplayState {
+            warning_level,
+            direction: None,
+            ..state
+        },
+        WarningLevel::Corrected => DisplayState {
+            warning_level,
+            direction: None,
+            ..state
+        },
         WarningLevel::Warning | WarningLevel::Severe => DisplayState {
             warning_level,
             direction: direction.map(str::to_string),
@@ -154,5 +165,8 @@ fn direction_banner_text_keys(direction: Option<&str>) -> Vec<String> {
     } else {
         "main_window.adjust_right_hint"
     };
-    vec!["main_window.please_face_screen".to_string(), hint.to_string()]
+    vec![
+        "main_window.please_face_screen".to_string(),
+        hint.to_string(),
+    ]
 }

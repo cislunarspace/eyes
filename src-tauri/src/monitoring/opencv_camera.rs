@@ -24,7 +24,10 @@ impl OpenCvCamera {
 impl FrameSource for OpenCvCamera {
     fn read_frame(&mut self) -> Result<Option<Frame>, String> {
         let mut bgr = core::Mat::default();
-        let read = self.capture.read(&mut bgr).map_err(|error| error.to_string())?;
+        let read = self
+            .capture
+            .read(&mut bgr)
+            .map_err(|error| error.to_string())?;
         if !read || bgr.empty() {
             return Ok(None);
         }
@@ -33,9 +36,14 @@ impl FrameSource for OpenCvCamera {
         imgproc::cvt_color(&bgr, &mut rgb, imgproc::COLOR_BGR2RGB, 0)
             .map_err(|error| error.to_string())?;
         let size = rgb.size().map_err(|error| error.to_string())?;
-        let bytes = rgb.data_bytes().map_err(|error| error.to_string())?.to_vec();
-        let width = u32::try_from(size.width).map_err(|_| "invalid camera frame width".to_string())?;
-        let height = u32::try_from(size.height).map_err(|_| "invalid camera frame height".to_string())?;
+        let bytes = rgb
+            .data_bytes()
+            .map_err(|error| error.to_string())?
+            .to_vec();
+        let width =
+            u32::try_from(size.width).map_err(|_| "invalid camera frame width".to_string())?;
+        let height =
+            u32::try_from(size.height).map_err(|_| "invalid camera frame height".to_string())?;
         Frame::rgb(width, height, bytes)
             .map(Some)
             .map_err(|error| format!("invalid camera frame: {error:?}"))

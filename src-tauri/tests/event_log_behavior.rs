@@ -6,8 +6,10 @@ fn appending_events_creates_jsonl_file_and_preserves_order() {
     let temp = tempfile::tempdir().unwrap();
     let log = EventLog::new(temp.path());
 
-    log.append(AppEventKind::CameraUnavailable, serde_json::json!({})).unwrap();
-    log.append(AppEventKind::CameraResumed, serde_json::json!({})).unwrap();
+    log.append(AppEventKind::CameraUnavailable, serde_json::json!({}))
+        .unwrap();
+    log.append(AppEventKind::CameraResumed, serde_json::json!({}))
+        .unwrap();
 
     let content = std::fs::read_to_string(temp.path().join("events.jsonl")).unwrap();
     let lines: Vec<_> = content.lines().collect();
@@ -30,7 +32,8 @@ fn serializes_every_event_kind() {
         AppEventKind::SnoozeEnd,
         AppEventKind::WarningLevelChanged,
     ] {
-        log.append(kind, serde_json::json!({ "state": "VISIBLE" })).unwrap();
+        log.append(kind, serde_json::json!({ "state": "VISIBLE" }))
+            .unwrap();
     }
 
     let content = std::fs::read_to_string(temp.path().join("events.jsonl")).unwrap();
@@ -52,8 +55,16 @@ fn event_payload_is_jsonl_and_contains_no_biometric_data_unless_caller_adds_it()
     let temp = tempfile::tempdir().unwrap();
     let log = EventLog::new(temp.path());
 
-    log.append(AppEventKind::StateChange, serde_json::json!({ "state": "OFF_AXIS_LEFT" })).unwrap();
-    log.append(AppEventKind::PromptFired, serde_json::json!({ "prompt": "adjust", "direction": "LEFT" })).unwrap();
+    log.append(
+        AppEventKind::StateChange,
+        serde_json::json!({ "state": "OFF_AXIS_LEFT" }),
+    )
+    .unwrap();
+    log.append(
+        AppEventKind::PromptFired,
+        serde_json::json!({ "prompt": "adjust", "direction": "LEFT" }),
+    )
+    .unwrap();
 
     let content = std::fs::read_to_string(temp.path().join("events.jsonl")).unwrap();
     for line in content.lines() {
@@ -62,8 +73,13 @@ fn event_payload_is_jsonl_and_contains_no_biometric_data_unless_caller_adds_it()
         assert!(value.get("kind").is_some());
     }
     let lower = content.to_lowercase();
-    for forbidden in ["frame", "landmark", "face", "image", "pixel", "yaw", "roll", "angle"] {
-        assert!(!lower.contains(forbidden), "biometric field {forbidden} should not be logged");
+    for forbidden in [
+        "frame", "landmark", "face", "image", "pixel", "yaw", "roll", "angle",
+    ] {
+        assert!(
+            !lower.contains(forbidden),
+            "biometric field {forbidden} should not be logged"
+        );
     }
 }
 

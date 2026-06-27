@@ -42,6 +42,9 @@ mod tests {
 
     #[test]
     fn second_instance_focuses_the_existing_main_window() {
-        assert_eq!(second_instance_decision(), SecondInstanceDecision::FocusMainWindow);
+        assert_eq!(
+            second_instance_decision(),
+            SecondInstanceDecision::FocusMainWindow
+        );
     }
 }

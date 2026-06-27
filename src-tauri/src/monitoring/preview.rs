@@ -18,7 +18,10 @@ impl Frame {
             .and_then(|pixels| pixels.checked_mul(3))
             .ok_or(FrameError::DimensionOverflow { width, height })?;
         if rgb.len() != expected_len {
-            return Err(FrameError::InvalidRgbLength { expected: expected_len, actual: rgb.len() });
+            return Err(FrameError::InvalidRgbLength {
+                expected: expected_len,
+                actual: rgb.len(),
+            });
         }
         Ok(Self { width, height, rgb })
     }
@@ -45,8 +48,12 @@ pub fn encode_preview(frame: &Frame) -> Result<PreviewFrame, FrameError> {
         let mut encoder = Encoder::new(&mut png_bytes, frame.width, frame.height);
         encoder.set_color(ColorType::Rgb);
         encoder.set_depth(BitDepth::Eight);
-        let mut writer = encoder.write_header().map_err(|_| FrameError::EncodeFailed)?;
-        writer.write_image_data(&frame.rgb).map_err(|_| FrameError::EncodeFailed)?;
+        let mut writer = encoder
+            .write_header()
+            .map_err(|_| FrameError::EncodeFailed)?;
+        writer
+            .write_image_data(&frame.rgb)
+            .map_err(|_| FrameError::EncodeFailed)?;
     }
 
     Ok(PreviewFrame {

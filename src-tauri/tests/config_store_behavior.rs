@@ -35,8 +35,18 @@ fn roundtrips_saved_config_and_uses_defaults_for_partial_yaml() {
     store.save(&config).unwrap();
     assert_eq!(store.load().unwrap(), config);
 
-    std::fs::write(temp.path().join("config.yaml"), "language: ja-JP\nunknown_field: ignored\n").unwrap();
-    assert_eq!(store.load().unwrap(), AppConfig { language: "ja-JP".to_string(), ..AppConfig::default() });
+    std::fs::write(
+        temp.path().join("config.yaml"),
+        "language: ja-JP\nunknown_field: ignored\n",
+    )
+    .unwrap();
+    assert_eq!(
+        store.load().unwrap(),
+        AppConfig {
+            language: "ja-JP".to_string(),
+            ..AppConfig::default()
+        }
+    );
 }
 
 #[test]
@@ -58,14 +68,20 @@ fn partial_update_preserves_unspecified_fields_and_leaves_no_tmp_file() {
     let store = ConfigStore::new(temp.path());
     let original = store.load().unwrap();
 
-    let updated = store.update(|config| {
-        config.yaw_threshold = 25.0;
-        config.language = "ja-JP".to_string();
-    }).unwrap();
+    let updated = store
+        .update(|config| {
+            config.yaw_threshold = 25.0;
+            config.language = "ja-JP".to_string();
+        })
+        .unwrap();
 
     assert_eq!(updated.yaw_threshold, 25.0);
     assert_eq!(updated.language, "ja-JP");
     assert_eq!(updated.roll_threshold, original.roll_threshold);
     assert_eq!(updated.camera_index, original.camera_index);
-    assert!(std::fs::read_dir(temp.path()).unwrap().all(|entry| !entry.unwrap().file_name().to_string_lossy().ends_with(".tmp")));
+    assert!(std::fs::read_dir(temp.path()).unwrap().all(|entry| !entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .ends_with(".tmp")));
 }

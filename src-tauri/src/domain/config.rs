@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::{Path, PathBuf}};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -46,7 +49,9 @@ pub struct ConfigStore {
 
 impl ConfigStore {
     pub fn new(config_dir: impl AsRef<Path>) -> Self {
-        Self { config_dir: config_dir.as_ref().to_path_buf() }
+        Self {
+            config_dir: config_dir.as_ref().to_path_buf(),
+        }
     }
 
     pub fn load(&self) -> io::Result<AppConfig> {

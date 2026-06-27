@@ -12,7 +12,10 @@ pub struct NeutralPose {
 
 impl Default for NeutralPose {
     fn default() -> Self {
-        Self { yaw: 0.0, roll: 0.0 }
+        Self {
+            yaw: 0.0,
+            roll: 0.0,
+        }
     }
 }
 
@@ -33,7 +36,7 @@ impl Default for Thresholds {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum PoseState {
     FacingScreen,
     OffAxisLeft,

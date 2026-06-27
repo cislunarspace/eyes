@@ -4,15 +4,21 @@ use eyes_lib::domain::{
 };
 
 fn has_correction(events: &[SenseEvent]) -> bool {
-    events.iter().any(|event| matches!(event, SenseEvent::Correction { .. }))
+    events
+        .iter()
+        .any(|event| matches!(event, SenseEvent::Correction { .. }))
 }
 
 fn has_good_posture(events: &[SenseEvent]) -> bool {
-    events.iter().any(|event| matches!(event, SenseEvent::GoodPosture))
+    events
+        .iter()
+        .any(|event| matches!(event, SenseEvent::GoodPosture))
 }
 
 fn has_eye_rest(events: &[SenseEvent]) -> bool {
-    events.iter().any(|event| matches!(event, SenseEvent::EyeRest))
+    events
+        .iter()
+        .any(|event| matches!(event, SenseEvent::EyeRest))
 }
 
 fn has_warning(events: &[SenseEvent], level: WarningLevel) -> bool {
@@ -59,7 +65,9 @@ fn non_off_axis_left_right_states_reset_or_skip_correction_streak() {
 fn facing_and_presence_accumulators_fire_and_reset_at_thresholds() {
     let mut engine = PostureTickEngine::new(Some(5.0), None, Some(2.0), Some(3.0));
 
-    assert!(!has_good_posture(&engine.tick(PoseState::FacingScreen, 1.0)));
+    assert!(!has_good_posture(
+        &engine.tick(PoseState::FacingScreen, 1.0)
+    ));
     let events = engine.tick(PoseState::FacingScreen, 1.0);
     assert!(has_good_posture(&events));
     assert!(!has_eye_rest(&events));
@@ -77,7 +85,9 @@ fn non_facing_and_no_face_pause_accumulators_without_resetting() {
     }
     engine.tick(PoseState::OffAxisLeft, 1.0);
     engine.tick(PoseState::NoFace, 1.0);
-    assert!(!has_good_posture(&engine.tick(PoseState::FacingScreen, 1.0)));
+    assert!(!has_good_posture(
+        &engine.tick(PoseState::FacingScreen, 1.0)
+    ));
 
     for _ in 0..3 {
         engine.tick(PoseState::FacingScreen, 1.0);
@@ -95,14 +105,26 @@ fn warning_level_lifecycle_matches_python_oracle() {
     assert!(has_warning(&events, WarningLevel::Warning));
 
     for _ in 0..8 {
-        assert!(!has_warning(&engine.tick(PoseState::OffAxisRight, 1.0), WarningLevel::Severe));
+        assert!(!has_warning(
+            &engine.tick(PoseState::OffAxisRight, 1.0),
+            WarningLevel::Severe
+        ));
     }
     let events = engine.tick(PoseState::OffAxisRight, 1.0);
     assert!(events.iter().any(|event| matches!(event, SenseEvent::WarningLevelChanged { level: WarningLevel::Severe, direction: Some(direction) } if direction == "right")));
 
-    assert!(has_warning(&engine.tick(PoseState::FacingScreen, 1.0), WarningLevel::Corrected));
-    assert!(!has_warning(&engine.tick(PoseState::FacingScreen, 1.0), WarningLevel::Normal));
-    assert!(has_warning(&engine.tick(PoseState::FacingScreen, 1.0), WarningLevel::Normal));
+    assert!(has_warning(
+        &engine.tick(PoseState::FacingScreen, 1.0),
+        WarningLevel::Corrected
+    ));
+    assert!(!has_warning(
+        &engine.tick(PoseState::FacingScreen, 1.0),
+        WarningLevel::Normal
+    ));
+    assert!(has_warning(
+        &engine.tick(PoseState::FacingScreen, 1.0),
+        WarningLevel::Normal
+    ));
 }
 
 #[test]
@@ -111,7 +133,10 @@ fn warning_does_not_escalate_below_threshold_and_no_face_starts_fresh_episode() 
 
     engine.tick(PoseState::OffAxisLeft, 1.0);
     for _ in 0..8 {
-        assert!(!has_warning(&engine.tick(PoseState::OffAxisLeft, 1.0), WarningLevel::Severe));
+        assert!(!has_warning(
+            &engine.tick(PoseState::OffAxisLeft, 1.0),
+            WarningLevel::Severe
+        ));
     }
 
     let events = engine.tick(PoseState::NoFace, 1.0);
@@ -129,9 +154,15 @@ fn off_axis_other_does_not_advance_warning_escalation() {
         assert!(engine.tick(PoseState::OffAxisOther, 1.0).is_empty());
     }
     for _ in 0..8 {
-        assert!(!has_warning(&engine.tick(PoseState::OffAxisLeft, 1.0), WarningLevel::Severe));
+        assert!(!has_warning(
+            &engine.tick(PoseState::OffAxisLeft, 1.0),
+            WarningLevel::Severe
+        ));
     }
-    assert!(has_warning(&engine.tick(PoseState::OffAxisLeft, 1.0), WarningLevel::Severe));
+    assert!(has_warning(
+        &engine.tick(PoseState::OffAxisLeft, 1.0),
+        WarningLevel::Severe
+    ));
 }
 
 #[test]
@@ -191,7 +222,13 @@ fn snooze_freezes_facing_presence_and_warning_escalation_independently() {
     }
     engine.resume();
     for _ in 0..8 {
-        assert!(!has_warning(&engine.tick(PoseState::OffAxisLeft, 1.0), WarningLevel::Severe));
+        assert!(!has_warning(
+            &engine.tick(PoseState::OffAxisLeft, 1.0),
+            WarningLevel::Severe
+        ));
     }
-    assert!(has_warning(&engine.tick(PoseState::OffAxisLeft, 1.0), WarningLevel::Severe));
+    assert!(has_warning(
+        &engine.tick(PoseState::OffAxisLeft, 1.0),
+        WarningLevel::Severe
+    ));
 }

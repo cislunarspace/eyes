@@ -22,7 +22,11 @@ pub fn compute_median_pose(samples: &[PoseSample]) -> Result<PoseSample, EmptySa
     }
 
     let mut sorted: Vec<PoseSample> = samples.to_vec();
-    sorted.sort_by(|a, b| a.yaw.partial_cmp(&b.yaw).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| {
+        a.yaw
+            .partial_cmp(&b.yaw)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let len = sorted.len();
     if len == 1 {

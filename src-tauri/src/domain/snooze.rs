@@ -1,6 +1,9 @@
-use time::{format_description::well_known::Iso8601, macros::format_description, OffsetDateTime, PrimitiveDateTime};
+use time::{
+    format_description::well_known::Iso8601, macros::format_description, OffsetDateTime,
+    PrimitiveDateTime,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum SnoozeState {
     Inactive,
     Indefinite,
@@ -27,7 +30,9 @@ pub fn evaluate_snooze(iso_string: Option<&str>, now_iso: &str) -> SnoozeState {
     if now >= until {
         SnoozeState::Expired
     } else {
-        SnoozeState::Active { until_iso: format_utc(until) }
+        SnoozeState::Active {
+            until_iso: format_utc(until),
+        }
     }
 }
 

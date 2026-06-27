@@ -26,7 +26,13 @@ fn warning_and_severe_banners_use_directional_hints_and_tint_badge() {
     let plan = display_plan(&state);
     assert!(plan.banner.visible);
     assert_eq!(plan.banner.bg, "#FFD700");
-    assert_eq!(plan.banner.text_keys, vec!["main_window.please_face_screen", "main_window.adjust_left_hint"]);
+    assert_eq!(
+        plan.banner.text_keys,
+        vec![
+            "main_window.please_face_screen",
+            "main_window.adjust_left_hint"
+        ]
+    );
     assert_eq!(plan.badge.bg, "#FFD700");
     assert_eq!(plan.badge.text_key, "badge.off_axis_left");
 
