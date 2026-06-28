@@ -1,13 +1,13 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PoseSample {
     pub yaw: f64,
-    pub roll: f64,
+    pub pitch: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CalibrationResult {
     pub yaw: f64,
-    pub roll: f64,
+    pub pitch: f64,
     pub sample_count: usize,
 }
 
@@ -41,7 +41,7 @@ pub fn compute_median_pose(samples: &[PoseSample]) -> Result<PoseSample, EmptySa
     let mid2 = &sorted[len / 2];
     Ok(PoseSample {
         yaw: (mid1.yaw + mid2.yaw) / 2.0,
-        roll: (mid1.roll + mid2.roll) / 2.0,
+        pitch: (mid1.pitch + mid2.pitch) / 2.0,
     })
 }
 
@@ -84,11 +84,11 @@ impl CalibrationSession {
         self.finished = false;
     }
 
-    pub fn feed(&mut self, yaw: f64, roll: f64) {
+    pub fn feed(&mut self, yaw: f64, pitch: f64) {
         if !self.active {
             return;
         }
-        self.samples.push(PoseSample { yaw, roll });
+        self.samples.push(PoseSample { yaw, pitch });
     }
 
     pub fn tick(&mut self, dt: f64) {
@@ -110,7 +110,7 @@ impl CalibrationSession {
         let median = compute_median_pose(&self.samples).ok()?;
         Some(CalibrationResult {
             yaw: median.yaw,
-            roll: median.roll,
+            pitch: median.pitch,
             sample_count: self.samples.len(),
         })
     }

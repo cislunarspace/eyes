@@ -16,6 +16,7 @@ pub struct WorkerOutput {
     pub preview: Option<PreviewFrame>,
     pub camera_ok: bool,
     pub pose_state: PoseState,
+    pub pitch_state: PoseState,
     pub yaw: Option<f64>,
     pub pitch: Option<f64>,
     pub sense_events: Vec<SenseEvent>,
@@ -82,13 +83,15 @@ impl<C: FrameSource> MonitoringWorker<C> {
         let sense_events = if self.snoozed.load(Ordering::Relaxed) {
             Vec::new()
         } else {
-            self.engine.tick(classification.yaw_state, dt)
+            self.engine
+                .tick(classification.yaw_state, classification.pitch_state, dt)
         };
 
         WorkerOutput {
             preview,
             camera_ok: true,
             pose_state: classification.yaw_state,
+            pitch_state: classification.pitch_state,
             yaw: detected_pose.map(|p| p.yaw),
             pitch: detected_pose.map(|p| p.pitch),
             sense_events,
@@ -100,6 +103,7 @@ impl<C: FrameSource> MonitoringWorker<C> {
             preview: None,
             camera_ok: false,
             pose_state: PoseState::NoFace,
+            pitch_state: PoseState::NoFace,
             yaw: None,
             pitch: None,
             sense_events: Vec::new(),
@@ -195,7 +199,7 @@ mod tests {
     #[test]
     fn off_axis_right_triggers_correction() {
         let frames = vec![Some(fake_frame(640, 480)); 20];
-        let mut w = make_worker(frames, Some(HeadPose { yaw: 5.0, pitch: 0.0 }));
+        let mut w = make_worker(frames, Some(HeadPose { yaw: 6.0, pitch: 0.0 }));
 
         let mut got_correction = false;
         for _ in 0..20 {
@@ -217,7 +221,7 @@ mod tests {
             idx: 0,
         };
         let det: Option<Box<dyn Detector>> =
-            Some(Box::new(FakeDetector { pose: Some(HeadPose { yaw: 5.0, pitch: 0.0 }) }));
+            Some(Box::new(FakeDetector { pose: Some(HeadPose { yaw: 6.0, pitch: 0.0 }) }));
         let mut w = MonitoringWorker::new(cam, det, PostureTickEngine::default(), snoozed);
         let out = w.tick(0.1);
         assert!(out.sense_events.is_empty());

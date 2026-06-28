@@ -1,4 +1,5 @@
-use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::domain::calibration::CalibrationSession;
 use crate::domain::classifier::PoseState;
@@ -28,8 +29,16 @@ pub struct StatusSnapshot {
 pub struct AppState {
     pub config: AppConfig,
     pub status: StatusSnapshot,
-    pub calibration: CalibrationSession,
 }
+
+/// 跨线程共享的配置，worker 和 command 都可读写。
+pub type SharedConfig = Arc<RwLock<AppConfig>>;
+
+/// 跨线程共享的校准会话。
+pub type SharedCalibration = Arc<Mutex<CalibrationSession>>;
+
+/// 跨线程共享的 snooze 标志。
+pub type SharedSnooze = Arc<AtomicBool>;
 
 impl AppState {
     pub fn new(config: AppConfig) -> Self {
@@ -44,7 +53,6 @@ impl AppState {
                 snooze_state: SnoozeState::Inactive,
                 calibration_active: false,
             },
-            calibration: CalibrationSession::new(5.0),
         }
     }
 }

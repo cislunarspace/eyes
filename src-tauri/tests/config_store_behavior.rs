@@ -11,7 +11,7 @@ fn first_run_creates_default_yaml_config() {
     let config_file = temp.path().join("config.yaml");
     assert!(config_file.exists());
     let yaml = std::fs::read_to_string(config_file).unwrap();
-    assert!(yaml.contains("yaw_threshold: 1.0"));
+    assert!(yaml.contains("yaw_threshold: 5"));
     assert!(yaml.contains("language: zh-CN"));
 }
 
@@ -21,9 +21,9 @@ fn roundtrips_saved_config_and_uses_defaults_for_partial_yaml() {
     let store = ConfigStore::new(temp.path());
     let config = AppConfig {
         yaw_threshold: 20.0,
-        roll_threshold: 12.0,
+        pitch_threshold: 12.0,
         neutral_yaw: 3.0,
-        neutral_roll: -2.0,
+        neutral_pitch: -2.0,
         camera_index: 1,
         snooze_until_iso: Some("2026-05-11T12:00:00+08:00".to_string()),
         sound_enabled: true,
@@ -77,7 +77,7 @@ fn partial_update_preserves_unspecified_fields_and_leaves_no_tmp_file() {
 
     assert_eq!(updated.yaw_threshold, 25.0);
     assert_eq!(updated.language, "ja-JP");
-    assert_eq!(updated.roll_threshold, original.roll_threshold);
+    assert_eq!(updated.pitch_threshold, original.pitch_threshold);
     assert_eq!(updated.camera_index, original.camera_index);
     assert!(std::fs::read_dir(temp.path()).unwrap().all(|entry| !entry
         .unwrap()

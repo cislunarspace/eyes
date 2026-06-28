@@ -5,50 +5,50 @@ fn computes_median_pose_by_sorting_samples_by_yaw() {
     assert_eq!(
         compute_median_pose(&[PoseSample {
             yaw: 5.0,
-            roll: 3.0
+            pitch: 3.0
         }])
         .unwrap(),
         PoseSample {
             yaw: 5.0,
-            roll: 3.0
+            pitch: 3.0
         },
     );
     assert_eq!(
         compute_median_pose(&[
             PoseSample {
                 yaw: 2.0,
-                roll: 1.0
+                pitch: 1.0
             },
             PoseSample {
                 yaw: 4.0,
-                roll: 3.0
+                pitch: 3.0
             },
         ])
         .unwrap(),
         PoseSample {
             yaw: 3.0,
-            roll: 2.0
+            pitch: 2.0
         },
     );
     assert_eq!(
         compute_median_pose(&[
             PoseSample {
                 yaw: 1.0,
-                roll: 0.0
+                pitch: 0.0
             },
             PoseSample {
                 yaw: 5.0,
-                roll: 10.0
+                pitch: 10.0
             },
             PoseSample {
                 yaw: 3.0,
-                roll: 5.0
+                pitch: 5.0
             },
         ])
         .unwrap(),
         PoseSample {
             yaw: 3.0,
-            roll: 5.0
+            pitch: 5.0
         },
     );
 }
@@ -84,7 +84,7 @@ fn calibration_session_collects_only_while_active_and_returns_finished_median() 
     assert!(!session.is_active());
     let result = session.result().unwrap();
     assert_eq!(result.yaw, 3.0);
-    assert_eq!(result.roll, 5.0);
+    assert_eq!(result.pitch, 5.0);
     assert_eq!(result.sample_count, 3);
 }
 

@@ -34,5 +34,10 @@ name = "yunet_probe"
 path = "src/bin/yunet_probe.rs"
 required-features = ["onnx-detector"]
 
+[[bin]]
+name = "yunet_camera"
+path = "src/bin/yunet_camera.rs"
+required-features = ["onnx-detector"]
+
 [dev-dependencies]
 tempfile = "3"

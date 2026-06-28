@@ -9,6 +9,19 @@ use super::contract::{
     MAIN_WINDOW_LABEL, MENU_QUIT_ID, MENU_SETTINGS_ID, MENU_SHOW_ID, TRAY_ID,
 };
 
+/// 托盘菜单文本映射。
+fn menu_label<'a>(key: &'a str, lang: &'a str) -> &'a str {
+    match (key, lang) {
+        ("show", "en") => "Show",
+        ("show", _) => "显示",
+        ("settings", "en") => "Settings",
+        ("settings", _) => "设置",
+        ("quit", "en") => "Quit",
+        ("quit", _) => "退出",
+        _ => key,
+    }
+}
+
 pub fn focus_main_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
@@ -34,10 +47,10 @@ pub fn handle_window_event<R: Runtime>(window: &tauri::Window<R>, event: &Window
     }
 }
 
-pub fn create_tray(app: &App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, MENU_SHOW_ID, "显示", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, MENU_SETTINGS_ID, "设置", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, MENU_QUIT_ID, "退出", true, None::<&str>)?;
+pub fn create_tray(app: &App, lang: &str) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, MENU_SHOW_ID, menu_label("show", lang), true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, MENU_SETTINGS_ID, menu_label("settings", lang), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, MENU_QUIT_ID, menu_label("quit", lang), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &settings, &quit])?;
 
     let icon = app
@@ -68,4 +81,29 @@ pub fn create_tray(app: &App) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+/// 语言变更后重建托盘菜单。
+pub fn rebuild_tray<R: Runtime>(app: &AppHandle<R>, lang: &str) {
+    let tray = match app.tray_by_id(TRAY_ID) {
+        Some(t) => t,
+        None => return,
+    };
+    let show = match MenuItem::with_id(app, MENU_SHOW_ID, menu_label("show", lang), true, None::<&str>) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let settings = match MenuItem::with_id(app, MENU_SETTINGS_ID, menu_label("settings", lang), true, None::<&str>) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let quit = match MenuItem::with_id(app, MENU_QUIT_ID, menu_label("quit", lang), true, None::<&str>) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let menu = match Menu::with_items(app, &[&show, &settings, &quit]) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let _ = tray.set_menu(Some(menu));
 }
