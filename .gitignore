@@ -1,22 +1,9 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Frontend/Tauri-generated files
+# Frontend/Tauri build artifacts
 node_modules/
+dist/
 src-tauri/target/
 
-# Virtual environments
-.venv
-
-# MediaPipe model (bundled separately or downloaded at first run)
+# ONNX models (obtained separately, bundled at build time)
 models/*
 !models/MANIFEST.toml
 
@@ -30,4 +17,5 @@ Thumbs.db
 
 # Claude Code tool artifacts
 .claude/session-files.log
+.claude/PRDs/
 .claude/PRPs/

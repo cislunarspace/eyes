@@ -196,20 +196,20 @@ Worker 不直接依赖任何 Tauri 类型。`events.rs` 负责把 `WorkerEvent` 
 
 ### M8 — 旧代码清理
 
-- [ ] Rust 应用通过 M1 到 M7 的全部验收。
-- [ ] 删除 `src/`、`tests/`、`main.py`、`eyes.spec`、`eyes-linux.spec`、`pyproject.toml`、`uv.lock`、`.venv/`、`scripts/build*.py`。
-- [ ] 删除 `.github/workflows/linux-build.yml`（Python 流水线）。
-- [ ] 为 Rust/Tauri 版本重写 `README.md` 和 `README_zh.md`；如有参考价值，将旧 README 存档到 `docs/legacy/README-pyside.md`。
-- [ ] 迁移提交使切换点易于定位。
-- [ ] 仓库根目录只剩 Rust、Tauri、前端、模型、文档。
+- [x] Rust 应用通过 M1 到 M7 的全部验收。
+- [x] 删除 `src/eyes/`、`tests/`、`main.py`、`eyes.spec`、`eyes-linux.spec`、`pyproject.toml`、`uv.lock`、`.venv/`、`scripts/build*.py`。
+- [x] 删除 `.github/workflows/linux-build.yml`（Python 流水线）。
+- [x] 为 Rust/Tauri 版本重写 `README.md` 和 `README_zh.md`；旧 README 存档到 `docs/legacy/`。
+- [x] 迁移提交使切换点易于定位。
+- [x] 仓库根目录只剩 Rust、Tauri、前端、模型、文档。
 
 ## 持续集成
 
 | 流水线 | 触发方式 | 运行环境 | 用途 |
 | --- | --- | --- | --- |
-| `linux-build.yml`（已有） | push、PR | ubuntu-latest | 旧版 Python 构建/测试；M8 前不动 |
-| `rust-test.yml`（新建） | push、PR | ubuntu-latest + windows-latest | `cargo fmt --check`、`cargo clippy`、`cargo test`。Linux 任务仅覆盖 `domain/*`，不依赖 OpenCV/ONNX。Windows 任务覆盖整个 crate。 |
-| `tauri-build.yml`（新建） | 手动 + tag | windows-latest | `cargo tauri build`，上传 MSI 产物供手动冒烟测试。不涉及打包的 PR 无需此流水线通过。 |
+| `linux-build.yml`（已删除） | — | — | 旧版 Python 构建/测试；M8 已移除 |
+| `rust-test.yml`（待建） | push、PR | ubuntu-latest + windows-latest | `cargo fmt --check`、`cargo clippy`、`cargo test`。Linux 任务仅覆盖 `domain/*`，不依赖 OpenCV/ONNX。Windows 任务覆盖整个 crate。 |
+| `tauri-build.yml`（待建） | 手动 + tag | windows-latest | `cargo tauri build`，上传 MSI 产物供手动冒烟测试。不涉及打包的 PR 无需此流水线通过。 |
 
 领域测试设计为不依赖 OpenCV 或 ONNX 即可运行，保持快速和可移植。摄像头/检测器代码通过 `Detector` trait 抽象，集成层可在需要时用假检测器测试。
 

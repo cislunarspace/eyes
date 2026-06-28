@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0] — 2026-06-28
+
+### M7 — Windows 打包
+
+- Tauri 构建流水线产出 MSI 安装包
+- ONNX Runtime 和 OpenCV DLL 随安装包分发
+- ONNX 模型文件通过 bundle.resources 打包
+- `build-windows.cmd` 构建辅助脚本
+- `models/MANIFEST.toml` 模型溯源清单
+
+### M8 — 旧代码清理
+
+- 删除全部 Python 源码、测试、PyInstaller 规格、构建脚本
+- 删除 Python CI 流水线（`.github/workflows/linux-build.yml`）
+- 删除 `pyproject.toml`、`uv.lock`、`.python-version`
+- 旧 README 存档至 `docs/legacy/`
+- 新 README 描述 Rust/Tauri 应用、Windows 安装流程、配置路径、卸载策略
+
 ## [0.2.0] — 2026-06-27
 
 ### Rust/Tauri 重写
@@ -15,11 +33,6 @@ Python 版本的完整 Rust 移植，使用 Tauri 2 构建桌面壳。
 - 共享状态容器（AppState），Tauri commands 暴露给前端
 - Detector trait（M4 ONNX 实现待接入）
 - 42 个 Rust 行为测试，cargo clippy 零警告
-
-**保留：**
-
-- 全部 Python 代码和测试仍可用，未删除
-- 配置格式（YAML）、事件日志格式（JSONL）兼容 Python 版
 
 ## [0.1.0] — 2025-xx-xx
 
