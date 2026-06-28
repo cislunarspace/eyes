@@ -1,5 +1,7 @@
 pub mod detector;
 #[cfg(feature = "opencv-camera")]
 pub mod opencv_camera;
+#[cfg(feature = "onnx-detector")]
+pub mod onnx_detector;
 pub mod preview;
 pub mod worker;
