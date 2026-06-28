@@ -445,13 +445,14 @@ fn transpose_3x3(m: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
 ///
 /// 与 Python 版 `head_pose_geometry.rotation_to_yaw_pitch` 行为一致：
 /// - yaw = atan2(R[0][2], R[2][2])（绕 Y 轴）
-/// - pitch = atan2(R[2][1], R[2][2])（绕 X 轴）
+/// - pitch = atan2(-R[2][1], R[2][2])（绕 X 轴，取反使 positive = 仰头）
 ///
-/// 符号约定：positive pitch = 仰头。
-/// 坐标系：camera Y 轴向下。仰头时模型绕 X 轴正向旋转，R[2][1] = sin(θ) > 0。
+/// 符号约定：positive pitch = 仰头，negative pitch = 低头。
+/// 取反原因：camera Y 轴向下，头部上仰时 R[2][1] = -sin(θ)，
+/// atan2 直接得 -θ，取反后 positive = 仰头，与约定一致。
 pub fn rotation_to_yaw_pitch(rotation: &[[f64; 3]; 3]) -> (f64, f64) {
     let yaw = rotation[0][2].atan2(rotation[2][2]);
-    let pitch = rotation[2][1].atan2(rotation[2][2]);
+    let pitch = -rotation[2][1].atan2(rotation[2][2]);
     (yaw.to_degrees(), pitch.to_degrees())
 }
 
@@ -531,7 +532,8 @@ mod tests {
     #[test]
     fn solve_pnp_detects_pitch_up() {
         let cam = [[1000.0, 0.0, 160.0], [0.0, 1000.0, 120.0], [0.0, 0.0, 1.0]];
-        let r_true = pitch_rotation_matrix(20.0);
+        // 负向绕 X 轴旋转 = 仰头
+        let r_true = pitch_rotation_matrix(-20.0);
         let pts = project_points(&r_true, 500.0, 1000.0, 160.0, 120.0);
         let r = solve_pnp(&pts, &MODEL_3D, &cam).unwrap();
         let (yaw, pitch) = rotation_to_yaw_pitch(&r);
@@ -542,7 +544,8 @@ mod tests {
     #[test]
     fn solve_pnp_detects_pitch_down() {
         let cam = [[1000.0, 0.0, 160.0], [0.0, 1000.0, 120.0], [0.0, 0.0, 1.0]];
-        let r_true = pitch_rotation_matrix(-15.0);
+        // 正向绕 X 轴旋转 = 低头
+        let r_true = pitch_rotation_matrix(15.0);
         let pts = project_points(&r_true, 500.0, 1000.0, 160.0, 120.0);
         let r = solve_pnp(&pts, &MODEL_3D, &cam).unwrap();
         let (yaw, pitch) = rotation_to_yaw_pitch(&r);

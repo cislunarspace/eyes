@@ -47,7 +47,7 @@ def rotation_to_yaw_pitch(rotation: np.ndarray) -> HeadPose:
             f"Expected a 3×3 rotation matrix, got shape {rotation.shape}"
         )
     yaw = math.atan2(rotation[0, 2], rotation[2, 2])
-    pitch = math.atan2(rotation[2, 1], rotation[2, 2])
+    pitch = math.atan2(-rotation[2, 1], rotation[2, 2])
     return HeadPose(yaw=math.degrees(yaw), pitch=math.degrees(pitch))
 
 

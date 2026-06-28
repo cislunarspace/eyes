@@ -79,18 +79,20 @@ class TestEulerFromRotationMatrix:
         assert pose.yaw == pytest.approx(-12.0)
 
     def test_positive_pitch(self) -> None:
+        # 正向绕 X 轴旋转 = 低头 → pitch < 0
         pose = _euler_from_rotation_matrix(_pitch_matrix(10.0))
-        assert pose.pitch == pytest.approx(10.0)
+        assert pose.pitch == pytest.approx(-10.0)
 
     def test_negative_pitch(self) -> None:
+        # 负向绕 X 轴旋转 = 仰头 → pitch > 0
         pose = _euler_from_rotation_matrix(_pitch_matrix(-10.0))
-        assert pose.pitch == pytest.approx(-10.0)
+        assert pose.pitch == pytest.approx(10.0)
 
     def test_combined_yaw_and_pitch(self) -> None:
         rotation = _yaw_matrix(12.0) @ _pitch_matrix(10.0)
         pose = _euler_from_rotation_matrix(rotation)
         assert pose.yaw == pytest.approx(12.0)
-        assert pose.pitch == pytest.approx(10.0)
+        assert pose.pitch == pytest.approx(-10.0)
 
 
 # ---------------------------------------------------------------------------
