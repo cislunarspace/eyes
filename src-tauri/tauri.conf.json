@@ -26,7 +26,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": ["icons/icon.ico"]
+    "targets": ["msi"],
+    "icon": ["icons/icon.ico"],
+    "resources": [
+      "../models/face_detection_yunet_2023mar.onnx",
+      "onnxruntime.dll"
+    ],
+    "windows": {
+      "nsis": null
+    }
   }
 }

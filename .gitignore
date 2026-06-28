@@ -17,7 +17,12 @@ src-tauri/target/
 .venv
 
 # MediaPipe model (bundled separately or downloaded at first run)
-models/
+models/*
+!models/MANIFEST.toml
+
+# Native DLLs (copied by build.rs at build time)
+src-tauri/onnxruntime.dll
+src-tauri/opencv_world*.dll
 
 # OS
 .DS_Store
