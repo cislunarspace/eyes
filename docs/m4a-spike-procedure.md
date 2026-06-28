@@ -75,7 +75,16 @@ cargo test --features onnx-detector latency_benchmark -- --nocapture
 
 验收：P95 < 30 ms ✅。记录实测数值更新 ADR-0007。
 
-### ⬜ Step 5: 手动 5 姿态验证（需要你执行）
+### ✅ Step 5: 手动 5 姿态验证
+
+已完成。符号约定验证通过：
+- 仰头 → pitch > 0 ✅
+- 低头 → pitch < 0 ✅
+- 左转 → yaw > 0 ✅
+- 右转 → yaw < 0 ✅
+- 正面 → yaw ≈ 0 ✅
+
+**备注**：摄像头与屏幕平面不完全平行，pitch 存在系统性偏移，使用前需校正 neutral pose（应用已有校正流程）。
 
 在 `src-tauri/src/bin/yunet_probe.rs` 中替换输入帧为真实摄像头帧，或使用 Python 侧临时脚本：
 
@@ -115,7 +124,7 @@ cv2.destroyAllWindows()
 - [x] `ort` / `nalgebra` 依赖成功编译
 - [x] 检测器实现完成（12 个单元测试全绿）
 - [x] **P95 延迟 < 30 ms** — 实测 1.55 ms ✅
-- [ ] **5 种姿态正确识别**（Step 5 手动测试后勾选）
+- [x] **5 种姿态正确识别** — 实测通过 ✅
 
 ## 已知限制
 
