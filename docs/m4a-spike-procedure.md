@@ -40,6 +40,8 @@ nalgebra = { version = "0.33", optional = true }
 
 ### ⬜ Step 4: 运行延迟测试（需要你执行）
 
+**方式 A — probe 二进制（含简易延迟统计）：**
+
 ```bash
 cd src-tauri
 cargo run --features onnx-detector --bin yunet_probe -- ..\models\face_detection_yunet_2023mar.onnx
@@ -53,6 +55,15 @@ cargo run --features onnx-detector --bin yunet_probe -- ..\models\face_detection
 📊 延迟（黑帧，30 次）: P50=X.XX ms  P95=X.XX ms  P99=X.XX ms
 ✅ Probe 完成。
 ```
+
+**方式 B — 单元测试 `latency_benchmark`（打印 P50/P95/P99）：**
+
+```bash
+cd src-tauri
+cargo test --features onnx-detector latency_benchmark -- --nocapture
+```
+
+模型文件不存在时测试自动跳过，不会 fail。
 
 验收：P95 < 30 ms ✅。记录实测数值更新 ADR-0007。
 
