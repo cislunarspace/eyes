@@ -30,10 +30,8 @@
     "icon": ["icons/icon.ico"],
     "resources": [
       "../models/face_detection_yunet_2023mar.onnx",
-      "onnxruntime.dll"
-    ],
-    "windows": {
-      "nsis": null
-    }
+      "onnxruntime.dll",
+      "opencv_world4100.dll"
+    ]
   }
 }

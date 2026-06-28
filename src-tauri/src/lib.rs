@@ -15,16 +15,31 @@ use commands::{
 use domain::calibration::CalibrationSession;
 use tauri::Manager;
 
-/// 设置 ONNX Runtime DLL 的运行时加载路径。
+/// 将 Tauri 资源目录加入 DLL 搜索路径。
 ///
-/// 将 `ORT_LIB_LOCATION` 指向 Tauri 资源目录，
-/// 使 `ort` crate 的 `dlopen2` 能找到 `onnxruntime.dll`。
-#[cfg(feature = "onnx-detector")]
-fn setup_ort_lib_path(app_handle: &tauri::AppHandle) {
+/// Windows 默认搜索路径不包含 `resources/` 子目录。
+/// 通过 `SetDllDirectory` 添加后，Windows loader 和 `dlopen2`
+/// （`LoadLibraryW` 底层）都能找到 `onnxruntime.dll` 和 `opencv_world*.dll`。
+/// 此函数在 setup 闭包中调用，此时为单线程环境。
+#[cfg(target_os = "windows")]
+fn add_resource_dll_dir(app_handle: &tauri::AppHandle) {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetDllDirectoryW(lpPathName: *const u16) -> i32;
+    }
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        std::env::set_var("ORT_LIB_LOCATION", &resource_dir);
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = OsStr::new(resource_dir.as_os_str())
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe { SetDllDirectoryW(wide.as_ptr()) };
     }
 }
+
+#[cfg(not(target_os = "windows"))]
+fn add_resource_dll_dir(_app_handle: &tauri::AppHandle) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -44,8 +59,7 @@ pub fn run() {
         .manage(shared_config.clone())
         .manage(shared_calibration.clone())
         .setup(move |app| {
-            #[cfg(feature = "onnx-detector")]
-            setup_ort_lib_path(app.handle());
+            add_resource_dll_dir(app.handle());
             create_tray(app, &language)?;
             let worker_tx = spawn_worker(
                 app.handle().clone(),

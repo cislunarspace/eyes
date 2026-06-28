@@ -6,14 +6,15 @@ fn main() {
 
     // 复制 OpenCV DLL 到 src-tauri/ 供 Tauri 打包
     if let Ok(link_paths) = std::env::var("OPENCV_LINK_PATHS") {
-        for dir in link_paths.split(';').filter(|s| !s.is_empty()) {
-            if let Ok(entries) = fs::read_dir(dir) {
+        for dir in std::env::split_paths(&link_paths) {
+            if let Ok(entries) = fs::read_dir(&dir) {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_lowercase();
                     if name.starts_with("opencv_world") && name.ends_with(".dll") {
                         let dest = manifest_dir.join(entry.file_name());
-                        if fs::copy(entry.path(), &dest).is_ok() {
-                            println!("cargo:warning=复制 {} 到 src-tauri/", name);
+                        match fs::copy(entry.path(), &dest) {
+                            Ok(_) => println!("cargo:warning=复制 {} 到 src-tauri/", name),
+                            Err(e) => println!("cargo:warning=复制 {} 失败: {}", name, e),
                         }
                     }
                 }
@@ -26,17 +27,30 @@ fn main() {
         let ort_dll = PathBuf::from(&ort_dir).join("onnxruntime.dll");
         if ort_dll.exists() {
             let dest = manifest_dir.join("onnxruntime.dll");
-            if fs::copy(&ort_dll, &dest).is_ok() {
-                println!("cargo:warning=复制 onnxruntime.dll 到 src-tauri/");
+            match fs::copy(&ort_dll, &dest) {
+                Ok(_) => println!("cargo:warning=复制 onnxruntime.dll 到 src-tauri/"),
+                Err(e) => println!("cargo:warning=复制 onnxruntime.dll 失败: {}", e),
             }
         }
     }
 
-    // 如果 onnxruntime.dll 不存在，创建空占位文件防止 tauri_build 报错
-    let ort_placeholder = manifest_dir.join("onnxruntime.dll");
-    if !ort_placeholder.exists() {
-        fs::write(&ort_placeholder, []).expect("无法创建 onnxruntime.dll 占位文件");
-    }
+    // DLL 不存在时创建空占位文件，防止 tauri_build 报错。
+    // 正式打包时 build-windows.cmd 会确保 DLL 已就位。
+    ensure_dll_placeholder(&manifest_dir, "onnxruntime.dll");
+    ensure_dll_placeholder(&manifest_dir, "opencv_world4100.dll");
 
     tauri_build::build();
+}
+
+/// DLL 不存在时创建 0 字节占位文件。
+///
+/// 占位文件仅用于通过 tauri_build 的资源验证。
+/// 正式 MSI 打包前必须用真实 DLL 替换（由 build-windows.cmd 保证）。
+fn ensure_dll_placeholder(manifest_dir: &PathBuf, name: &str) {
+    let path = manifest_dir.join(name);
+    if !path.exists() {
+        fs::write(&path, []).unwrap_or_else(|e| {
+            panic!("无法创建 {} 占位文件: {}", name, e);
+        });
+    }
 }
