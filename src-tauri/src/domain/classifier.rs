@@ -30,10 +30,10 @@ pub struct Thresholds {
 impl Default for Thresholds {
     fn default() -> Self {
         Self {
-            yaw_deg: 5.0,
-            yaw_hysteresis_deg: 2.5,
-            pitch_deg: 10.0,
-            pitch_hysteresis_deg: 5.0,
+            yaw_deg: 1.0,
+            yaw_hysteresis_deg: 0.5,
+            pitch_deg: 5.0,
+            pitch_hysteresis_deg: 2.5,
         }
     }
 }
