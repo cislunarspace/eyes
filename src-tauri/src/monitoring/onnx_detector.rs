@@ -291,7 +291,7 @@ fn det3x3(m: &[[f64; 3]; 3]) -> f64 {
 /// 返回 (U, sigma, V^T)，使得 A = U * diag(sigma) * V^T。
 fn svd3x3(a: &[[f64; 3]; 3]) -> Option<([[f64; 3]; 3], [f64; 3], [[f64; 3]; 3])> {
     let ata = mat_transpose_times_self(a);
-    let (mut v, mut s) = jacobi_eigen_3x3(&ata);
+    let (mut v, s) = jacobi_eigen_3x3(&ata);
     let mut sigma = eigenvalues_to_sigma(&s);
     sort_descending(&mut sigma, &mut v);
     let u = compute_u(a, &v, &sigma);
@@ -616,5 +616,35 @@ mod tests {
 
     fn diag_matrix(d: &[f64; 3]) -> [[f64; 3]; 3] {
         [[d[0], 0.0, 0.0], [0.0, d[1], 0.0], [0.0, 0.0, d[2]]]
+    }
+
+    #[test]
+    fn latency_benchmark() {
+        use crate::monitoring::detector::Detector;
+        use std::time::Instant;
+
+        let model_path = "../models/face_detection_yunet_2023mar.onnx";
+        if !std::path::Path::new(model_path).exists() {
+            eprintln!("latency_benchmark: 模型文件不存在，跳过 ({model_path})");
+            return;
+        }
+        let mut detector = YuNetDetector::new(model_path).expect("加载模型失败");
+        let frame = vec![0u8; 640 * 480 * 3];
+        let n = 30usize;
+        let mut durations: Vec<f64> = (0..n)
+            .map(|_| {
+                let t = Instant::now();
+                let _ = detector.detect(&frame, 640, 480);
+                t.elapsed().as_secs_f64() * 1000.0
+            })
+            .collect();
+        durations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let p50 = durations[n * 50 / 100];
+        let p95 = durations[(n * 95 / 100).min(n - 1)];
+        let p99 = durations[(n * 99 / 100).min(n - 1)];
+        eprintln!("YuNet 延迟 (N={n}):");
+        eprintln!("  P50: {p50:.1} ms");
+        eprintln!("  P95: {p95:.1} ms");
+        eprintln!("  P99: {p99:.1} ms");
     }
 }

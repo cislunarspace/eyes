@@ -8,94 +8,104 @@
 
 - Windows 10/11
 - Rust 工具链（rustup）
-- 摄像头（用于手动姿态测试）
+- 摄像头（用于手动姿态测试，Step 5）
 - 模型文件：`models/face_detection_yunet_2023mar.onnx`（已下载）
 
 ## 评估步骤
 
-### Step 1: 确认模型文件
+### ✅ Step 1: 下载模型
 
-验证 `models/face_detection_yunet_2023mar.onnx` 存在且大小合理（~232 KB）。
+已完成。`models/face_detection_yunet_2023mar.onnx`（232 KB，Apache 2.0）。
 
-### Step 2: 添加依赖
+SHA256: `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4`
 
-在 `src-tauri/Cargo.toml` 中添加：
+### ✅ Step 2: 添加依赖
+
+已完成。`src-tauri/Cargo.toml` 已添加：
 
 ```toml
-[dependencies]
-ort = "2"  # ONNX Runtime Rust 绑定
-
 [features]
-onnx-detector = []  # 可选功能，控制是否编译 ONNX 检测器
+onnx-detector = ["dep:ort", "dep:nalgebra"]
+
+[dependencies]
+ort = { version = "=2.0.0-rc.12", optional = true }
+nalgebra = { version = "0.33", optional = true }
 ```
 
-注意：`ort` crate 会自动下载 ONNX Runtime 动态库（~15 MB），首次构建较慢。
+### ✅ Step 3: 实现检测器
 
-### Step 3: 实现检测器
+已完成。`src-tauri/src/monitoring/onnx_detector.rs`：
+- `YuNetDetector::new(model_path)` — 加载模型
+- `detect(rgb, width, height)` — 完整推理流程
 
-在 `src-tauri/src/monitoring/onnx_detector.rs` 中填充：
-
-1. `YuNetDetector::new()` — 加载 ONNX 模型
-2. `detect()` — 完整推理流程：
-   - 预处理：RGB → 320×240 float32
-   - YuNet 推理：获取边界框 + 5 关键点
-   - solvePnP：5 个 2D 关键点 + 5 个 3D 模型点 → 旋转矩阵
-   - 提取 yaw 和 pitch
-
-### Step 4: 延迟测试
+### ⬜ Step 4: 运行延迟测试（需要你执行）
 
 ```bash
-cargo test --features onnx-detector --test onnx_detector_spike -- --nocapture
+cd src-tauri
+cargo run --features onnx-detector --bin yunet_probe -- ..\models\face_detection_yunet_2023mar.onnx
 ```
 
-预期输出：
+预期输出（黑帧，30 次）：
 
 ```
-YuNet 推理延迟:
-  P50: 8.2 ms
-  P95: 14.5 ms
-  P99: 18.3 ms
-solvePnP 延迟: 0.05 ms
-总延迟 P95: 14.6 ms
-✅ 低于 30 ms 阈值
+✅ 模型加载成功: ..\models\face_detection_yunet_2023mar.onnx
+✅ detect(黑帧 640×480) = None  (黑帧预期 None)
+📊 延迟（黑帧，30 次）: P50=X.XX ms  P95=X.XX ms  P99=X.XX ms
+✅ Probe 完成。
 ```
 
-如果 P95 > 30 ms，需要优化（降低输入分辨率、量化模型等）。
+验收：P95 < 30 ms ✅。记录实测数值更新 ADR-0007。
 
-### Step 5: 手动姿态测试
+### ⬜ Step 5: 手动 5 姿态验证（需要你执行）
 
-用摄像头运行 5 种姿态，验证输出：
+在 `src-tauri/src/bin/yunet_probe.rs` 中替换输入帧为真实摄像头帧，或使用 Python 侧临时脚本：
 
-| 姿态 | 预期输出 |
-|------|----------|
-| 正面 | yaw ≈ 0, pitch ≈ 0 |
-| 左转 30° | yaw ≈ -30 |
-| 右转 30° | yaw ≈ 30 |
-| 仰头 | pitch > 0 |
-| 低头 | pitch < 0 |
+```python
+# tests/manual_yunet_check.py — 快速手动验证
+import cv2, sys, subprocess, json
 
-对比 Python 端 MediaPipe 的输出，确认符号约定一致。
+cap = cv2.VideoCapture(0)
+print("按 q 退出，按 s 截图")
+while True:
+    ok, frame = cap.read()
+    if not ok:
+        break
+    cv2.imshow("camera", frame)
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
+        break
+cap.release()
+cv2.destroyAllWindows()
+```
+
+（实际接入 `YuNetDetector` 时把 `frame` 转为 RGB bytes 传给 `detect()`。）
+
+需验证 5 种姿态：
+
+| 姿态 | 预期 yaw | 预期 pitch |
+|------|----------|------------|
+| 正面 | ≈ 0° | ≈ 0° |
+| 左转 30° | ≈ -30° | ≈ 0° |
+| 右转 30° | ≈ +30° | ≈ 0° |
+| 仰头 | ≈ 0° | > +5° |
+| 低头 | ≈ 0° | < -5° |
 
 ## 成功标准
 
 - [x] 模型文件已下载（~232 KB）
-- [ ] `ort` 依赖成功编译
-- [ ] 检测器实现完成
-- [ ] P95 延迟 < 30 ms
-- [ ] 5 种姿态正确识别
-- [ ] 符号约定与 Python 端一致
+- [x] `ort` / `nalgebra` 依赖成功编译
+- [x] 检测器实现完成（12 个单元测试全绿）
+- [ ] **P95 延迟 < 30 ms**（Step 4 实测后勾选）
+- [ ] **5 种姿态正确识别**（Step 5 手动测试后勾选）
 
 ## 已知限制
 
-- 5 关键点精度有限，头部大角度旋转（>60°）时可能不稳定
-- 如果精度不够，可考虑增加 PFLD 模型做 106 关键点（需自行导出 ONNX）
-- `ort` crate 首次构建会下载 ~15 MB 的 ONNX Runtime 动态库
+- 5 关键点精度有限，下巴由 bbox 估算，>45° 时误差增大
+- 如果姿态精度不够，备选：SixDRepNet 单模型（需确认许可证）
+- `ort = "=2.0.0-rc.12"` 锁定了 rc 版本；正式版发布后需更新
 
-## 下一步
+## 下一步（Spike 通过后）
 
-Spike 通过后：
-
-1. 实现 `detector.rs` 的 `YuNetDetector` 完整版本
-2. 添加 `--features onnx-detector` 到 CI 构建
-3. 在设置页面添加"检测器选择"下拉框
-4. 处理 `ort` 动态库的打包和分发
+1. 把 `YuNetDetector` 接入 Rust monitoring worker
+2. 在设置页面添加"检测器后端"切换（MediaPipe / ONNX）
+3. 处理 ONNX Runtime 动态库的打包分发

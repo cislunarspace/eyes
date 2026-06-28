@@ -29,5 +29,10 @@ dirs = "6"
 ort = { version = "=2.0.0-rc.12", optional = true }
 nalgebra = { version = "0.33", optional = true }
 
+[[bin]]
+name = "yunet_probe"
+path = "src/bin/yunet_probe.rs"
+required-features = ["onnx-detector"]
+
 [dev-dependencies]
 tempfile = "3"
