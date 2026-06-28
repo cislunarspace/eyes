@@ -7,86 +7,98 @@ Rust 核心需要人脸检测 + 头部姿态估计。当前 Python 端使用 Med
 ## 评估标准
 
 1. **许可证**：必须是 Apache 2.0、MIT 或 BSD
-2. **模型大小**：总体积 < 5 MB（理想 < 20 MB），Windows 分发体积敏感
+2. **模型大小**：总体积 < 20 MB（硬约束）；理想 < 5 MB
 3. **推理延迟**：Windows 中端 CPU（i5/Ryzen 5）单帧 < 30 ms
 4. **准确度**：5 种姿态（正面、左转、右转、仰头、低头）需正确区分，且与 Python MediaPipe 行为一致
 5. **输入格式**：RGB/BGR 需明确，`solvePnP` 坐标系约定需记录
 6. **ONNX Runtime**：需验证 `ort` crate 的兼容性和模型加载时间
 
-## 推荐方案：YuNet 单模型 + solvePnP
+## 选定方案：YuNet 单模型 + 纯 Rust solvePnP
 
 ### 为什么选 YuNet？
 
 YuNet 是 OpenCV 官方维护的人脸检测模型，除了边界框，还输出 5 个关键点：
-- 左眼中心
-- 右眼中心
-- 鼻尖
-- 左嘴角
-- 右嘴角
+左眼中心、右眼中心、鼻尖、左嘴角、右嘴角。
 
-用这 5 个关键点 + 3D 模型点做 `solvePnP`，就能算出头部旋转。不需要额外的关键点模型。
+用这 5 个关键点 + 第 6 个估算点（下巴 = bbox 底部中心）做 DLT solvePnP，就能算出头部旋转。不需要额外的关键点模型。
+
+### 为什么用纯 Rust solvePnP 而非 opencv::solve_pnp？
+
+`opencv` crate 需要系统 OpenCV 安装，且 `solve_pnp` 的参数约定（标定参数、失真系数）与本项目的"估算相机内参"方案不匹配。DLT solvePnP 仅需 `nalgebra` 做 SVD，与 `onnx-detector` feature 的条件编译一致，不引入额外的系统依赖。
+
+### 模型资产
 
 | 特性 | 值 |
 |------|-----|
-| 来源 | OpenCV Zoo |
+| 文件 | `models/face_detection_yunet_2023mar.onnx` |
+| 来源 | [opencv_zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) |
 | 许可证 | Apache 2.0 |
-| 大小 | ~232 KB |
-| 输入 | 320×240 RGB float32 |
-| 输出 | 边界框 + 5 关键点 + confidence |
-| 推理方式 | ONNX Runtime (ort crate) |
+| 大小 | 232 KB |
+| SHA256 | `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4` |
+| 推理方式 | ONNX Runtime (`ort = "=2.0.0-rc.12"`) |
 
-### 关键点 → solvePnP → yaw/pitch
+### 输入 / 输出合约
 
-1. YuNet 输出 5 个 2D 关键点
-2. 对应 5 个标准 3D 模型点（鼻尖为原点）
-3. 调用 OpenCV `solvePnP` 得到旋转向量
-4. 转旋转矩阵，提取 yaw 和 pitch
+**输入**
 
-### 延迟预估
+| 名称 | 形状 | 类型 | 说明 |
+|------|------|------|------|
+| input | `[1, 3, 240, 320]` | float32 | NCHW，RGB，未归一化（[0, 255]） |
 
-- YuNet 推理：~5-15 ms（CPU，取决于分辨率）
-- solvePnP：~0.1 ms（纯数学运算）
-- 总计：~5-15 ms，远低于 30 ms 阈值
+**输出**
 
-### 如果 5 关键点不够准
+| 名称 | 形状 | 类型 | 说明 |
+|------|------|------|------|
+| output | `[1, N, 15]` | float32 | N 个候选检测 |
 
-备选：增加 PFLD 模型做 106 关键点。但 PFLD 没有预导出的 ONNX 文件，需要自行导出。建议先用 5 关键点验证，不够再加。
+每个检测 15 个值：`[x, y, w, h, conf, lx0, ly0, lx1, ly1, lx2, ly2, lx3, ly3, lx4, ly4]`
+
+- `conf`：置信度，阈值 0.5
+- `lx/ly 0-4`：5 个关键点的 2D 坐标（输入图像坐标系，需乘比例缩放回原始分辨率）
+- 关键点顺序：左眼、右眼、鼻尖、左嘴角、右嘴角
+
+### 姿态估计流程
+
+1. YuNet 输出 5 个 2D 关键点 → 组合第 6 个估算点（下巴）
+2. 6 对 2D-3D 点 → DLT solvePnP（12×12 SVD）→ 旋转矩阵
+3. `rotation_to_yaw_pitch(R)`：yaw = atan2(R[0][2], R[2][2])，pitch = atan2(R[2][1], R[2][2])
+
+**符号约定**：positive yaw = 右转，positive pitch = 仰头，与 Python 端 MediaPipe 路径一致。
+
+**下巴估算精度**：大角度旋转（>45°）时下巴估算偏差增大，可能影响 pitch 准确度。
+
+### 延迟预估（待实测）
+
+- YuNet 推理：~5-15 ms（CPU，340×240 分辨率）
+- solvePnP（纯 Rust DLT）：< 0.1 ms
+- 总计：~5-15 ms（预估），**需要在 Windows i5/Ryzen 5 上实测**
 
 ## 备选方案
 
-### 路线 B：SixDRepNet
+### 路线 B：YuNet + PFLD（106 关键点）
 
-单模型直接输出 yaw/pitch/roll，不需要关键点和 solvePnP。但模型较大（~30MB+），且许可证需确认。适合作为路线 A 准确度不够时的备选。
+精度更高，但 PFLD 没有预导出的 ONNX 文件，需要自行从 PyTorch 导出。
 
-### 路线 C：MediaPipe ONNX
+### 路线 C：SixDRepNet
 
-468 关键点精度最高，但模型最大（~4MB），且有 Google 专利限制。不推荐。
+单模型直接输出 yaw/pitch/roll，不需要 solvePnP。模型 ~30 MB+，许可证待确认。
 
-## 实现方案
+### 路线 D：MediaPipe ONNX
 
-### 零配置分发
+468 关键点精度最高，但有 Google 专利限制。不推荐。
 
-`models/face_detection_yunet_2023mar.onnx`（~232 KB）打包进安装包，首次启动即用。
+## 实现状态
 
-### 依赖
-
-- `ort` crate（ONNX Runtime Rust 绑定）
-- OpenCV Rust 绑定（用于 `solvePnP`）或纯 Rust 实现
-
-### 代码位置
-
-- 检测器实现：`src-tauri/src/monitoring/onnx_detector.rs`
-- 模块注册：`src-tauri/src/monitoring/mod.rs`（`#[cfg(feature = "onnx-detector")]`）
-
-## Spike 验证步骤
-
-1. ✅ 下载 YuNet 模型到 `models/`（已下载）
-2. 在 Cargo.toml 中添加 `ort` 依赖
-3. 实现 `YuNetDetector::new()` 和 `detect()`
-4. 运行延迟测试，记录 P50/P95
-5. 手动测试 5 种姿态，与 Python 端对比
+| 步骤 | 状态 |
+|------|------|
+| 下载 YuNet 模型 | ✅ 已完成 |
+| 添加 `ort`/`nalgebra` 依赖 | ✅ 已完成 |
+| 实现 `YuNetDetector` | ✅ 已完成（`src-tauri/src/monitoring/onnx_detector.rs`） |
+| 单元测试（合成投影点） | ✅ 12 个测试全绿 |
+| Windows 延迟实测（P50/P95） | ⬜ 待执行，见 `docs/m4a-spike-procedure.md` |
+| 手动 5 姿态验证（真实摄像头） | ⬜ 待执行 |
 
 ## 签署
 
 - 日期：2026-06-28
-- 状态：Spike 进行中
+- 状态：实现完成，等待 Windows 延迟实测 + 手动姿态验证

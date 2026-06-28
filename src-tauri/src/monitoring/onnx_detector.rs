@@ -2,24 +2,44 @@
 //!
 //! 工作流程：
 //! 1. YuNet 检测人脸，输出边界框 + 5 个关键点
-//! 2. 5 个 2D 关键点 + 6 个 3D 模型点 → DLT solvePnP → 旋转矩阵
+//! 2. 5 个 2D 关键点 + 第 6 点（下巴，由 bbox 估算）→ DLT solvePnP → 旋转矩阵
 //! 3. 从旋转矩阵提取 yaw 和 pitch
 //!
-//! 第 6 个 3D 点（下巴）由边界框底部估算，不需要额外的关键点模型。
+//! 下巴点由边界框底部中心估算，大角度（>45°）时精度会下降。
 
 use crate::domain::classifier::HeadPose;
 use crate::monitoring::detector::Detector;
 use nalgebra::{self, SVD};
 
-// ── YuNet 输入尺寸 ──────────────────────────────────────────────
+// ── 常量 ───────────────────────────────────────────────────────
 
+/// YuNet 输入尺寸
 const INPUT_W: u32 = 320;
 const INPUT_H: u32 = 240;
 
-// ── 3D 模型点（6 点，鼻尖为原点） ──────────────────────────────
+/// YuNet 每个检测的输出宽度：[x, y, w, h, conf, 5×(lx, ly)]
+const YUNET_DETECTION_STRIDE: usize = 15;
+
+/// 关键点数量（YuNet 输出）
+const NUM_KEYPOINTS: usize = 5;
+
+/// solvePnP 使用的 3D 模型点总数（含下巴）
+const NUM_MODEL_POINTS: usize = 6;
+
+/// 最低置信度阈值
+const MIN_CONFIDENCE: f32 = 0.5;
+
+/// Jacobi SVD 最大迭代次数
+const JACOBI_MAX_ITER: usize = 100;
+
+/// 数值零阈值
+const EPSILON: f64 = 1e-10;
+const EPSILON_OFF_DIAG: f64 = 1e-15;
+
+// ── 3D 模型点（鼻尖为原点） ───────────────────────────────────
 // 前 5 个对应 YuNet 的 5 关键点：左眼、右眼、鼻尖、左嘴角、右嘴角
 // 第 6 个是下巴，由边界框底部估算
-const MODEL_3D: [[f64; 3]; 6] = [
+const MODEL_3D: [[f64; 3]; NUM_MODEL_POINTS] = [
     [-34.0, 32.0, -30.0],  // 左眼中心
     [34.0, 32.0, -30.0],   // 右眼中心
     [0.0, 0.0, 0.0],       // 鼻尖（原点）
@@ -28,12 +48,20 @@ const MODEL_3D: [[f64; 3]; 6] = [
     [0.0, -75.0, -12.0],   // 下巴
 ];
 
+// ── YuNet 检测器 ──────────────────────────────────────────────
+
 /// YuNet 检测器。
 ///
 /// 单模型方案：YuNet 输出 5 关键点，下巴从边界框底部估算，
 /// 用 6 个对应点做 solvePnP 计算头部姿态。
 pub struct YuNetDetector {
     session: ort::session::Session,
+}
+
+/// YuNet 单次检测结果。
+struct Detection {
+    landmarks_2d: [[f64; 2]; NUM_KEYPOINTS],
+    bbox: [f32; 4], // x, y, w, h（输入图像坐标）
 }
 
 impl YuNetDetector {
@@ -49,83 +77,85 @@ impl YuNetDetector {
 
 impl Detector for YuNetDetector {
     fn detect(&mut self, rgb: &[u8], width: u32, height: u32) -> Option<HeadPose> {
-        // Step 1: 预处理 — 最近邻缩放到 320×240，转 NCHW float32
         let input_data = preprocess_rgb(rgb, width, height);
-
-        // Step 2: 构建输入张量
         let tensor = ort::value::Tensor::from_array((
             [1usize, 3, INPUT_H as usize, INPUT_W as usize],
             input_data,
         ))
         .ok()?;
 
-        // Step 3: 推理
         let input_name = self.session.inputs()[0].name().to_string();
         let outputs = self
             .session
             .run(ort::inputs![input_name.as_str() => tensor])
             .ok()?;
 
-        // Step 4: 解析输出 — YuNet 输出 [1, N, 15]
-        // 每个检测：[x, y, w, h, conf, lx0, ly0, lx1, ly1, lx2, ly2, lx3, ly3, lx4, ly4]
         let output = outputs[0].try_extract_array::<f32>().ok()?;
-        let shape = output.shape();
-        if shape.len() < 3 || shape[2] < 15 {
-            return None;
-        }
-        let num_detections = shape[1];
-        let data = output.as_slice()?;
+        let det = find_best_detection(output.as_slice()?, output.shape(), width, height)?;
 
-        // Step 5: 找置信度最高的人脸
-        let mut best_conf = 0.5_f32;
-        let mut best_landmarks_2d = [[0.0_f64; 2]; 5];
-        let mut best_bbox = [0.0f32; 4]; // x, y, w, h
-
-        for i in 0..num_detections {
-            let base = i * 15;
-            let conf = data[base + 4];
-            if conf > best_conf {
-                best_conf = conf;
-                best_bbox = [data[base], data[base + 1], data[base + 2], data[base + 3]];
-                let scale_x = width as f64 / INPUT_W as f64;
-                let scale_y = height as f64 / INPUT_H as f64;
-                for j in 0..5 {
-                    let lx = data[base + 5 + j * 2] as f64 * scale_x;
-                    let ly = data[base + 5 + j * 2 + 1] as f64 * scale_y;
-                    best_landmarks_2d[j] = [lx, ly];
-                }
-            }
-        }
-
-        if best_conf <= 0.5 {
-            return None;
-        }
-
-        // Step 6: 估算第 6 个 2D 点（下巴 = 边界框底部中心）
-        let scale_x = width as f64 / INPUT_W as f64;
-        let scale_y = height as f64 / INPUT_H as f64;
-        let chin_x = (best_bbox[0] as f64 + best_bbox[2] as f64 / 2.0) * scale_x;
-        let chin_y = (best_bbox[1] as f64 + best_bbox[3] as f64) * scale_y;
-        let mut points_2d = [[0.0_f64; 2]; 6];
-        points_2d[..5].copy_from_slice(&best_landmarks_2d);
-        points_2d[5] = [chin_x, chin_y];
-
-        // Step 7: solvePnP
+        let points_2d = build_6_point_correspondence(&det, width, height);
         let camera_matrix = estimate_camera_matrix(width, height);
         let rotation = solve_pnp(&points_2d, &MODEL_3D, &camera_matrix)?;
-
-        // Step 8: 从旋转矩阵提取 yaw 和 pitch
         let (yaw, pitch) = rotation_to_yaw_pitch(&rotation);
         Some(HeadPose { yaw, pitch })
     }
 }
 
+/// 从 YuNet 输出中找置信度最高的人脸检测。
+fn find_best_detection(
+    data: &[f32],
+    shape: &[usize],
+    width: u32,
+    height: u32,
+) -> Option<Detection> {
+    if shape.len() < 3 || shape[2] < YUNET_DETECTION_STRIDE {
+        return None;
+    }
+    let num_detections = shape[1];
+    let scale_x = width as f64 / INPUT_W as f64;
+    let scale_y = height as f64 / INPUT_H as f64;
+
+    let mut best_conf = MIN_CONFIDENCE;
+    let mut best = None;
+
+    for i in 0..num_detections {
+        let base = i * YUNET_DETECTION_STRIDE;
+        let conf = data[base + 4];
+        if conf > best_conf {
+            best_conf = conf;
+            let mut landmarks_2d = [[0.0_f64; 2]; NUM_KEYPOINTS];
+            for j in 0..NUM_KEYPOINTS {
+                landmarks_2d[j] = [
+                    data[base + 5 + j * 2] as f64 * scale_x,
+                    data[base + 5 + j * 2 + 1] as f64 * scale_y,
+                ];
+            }
+            best = Some(Detection {
+                landmarks_2d,
+                bbox: [data[base], data[base + 1], data[base + 2], data[base + 3]],
+            });
+        }
+    }
+    best
+}
+
+/// 将 5 关键点 + 下巴估算组合为 6 点对应关系。
+///
+/// 下巴 = 边界框底部中心。大角度时此估算有误差。
+fn build_6_point_correspondence(det: &Detection, width: u32, height: u32) -> [[f64; 2]; 6] {
+    let scale_x = width as f64 / INPUT_W as f64;
+    let scale_y = height as f64 / INPUT_H as f64;
+    let chin_x = (det.bbox[0] as f64 + det.bbox[2] as f64 / 2.0) * scale_x;
+    let chin_y = (det.bbox[1] as f64 + det.bbox[3] as f64) * scale_y;
+    let mut pts = [[0.0_f64; 2]; 6];
+    pts[..NUM_KEYPOINTS].copy_from_slice(&det.landmarks_2d);
+    pts[NUM_MODEL_POINTS - 1] = [chin_x, chin_y];
+    pts
+}
+
 // ── 预处理 ─────────────────────────────────────────────────────
 
 /// 最近邻缩放 + 转 NCHW float32。
-///
-/// 输入：RGB 平坦字节，width × height。
-/// 输出：长度 3×240×320 的 float32 向量（CHW 顺序）。
 fn preprocess_rgb(rgb: &[u8], width: u32, height: u32) -> Vec<f32> {
     debug_assert!(
         rgb.len() >= (width * height * 3) as usize,
@@ -144,13 +174,10 @@ fn preprocess_rgb(rgb: &[u8], width: u32, height: u32) -> Vec<f32> {
             let sx = ((ox as f64 + 0.5) * width as f64 / out_w as f64 - 0.5).round() as u32;
             let sx = sx.min(width - 1);
             let src_idx = ((sy * width + sx) * 3) as usize;
-            let r = rgb[src_idx] as f32;
-            let g = rgb[src_idx + 1] as f32;
-            let b = rgb[src_idx + 2] as f32;
             let dst_base = oy * out_w + ox;
-            buf[dst_base] = r;
-            buf[out_h * out_w + dst_base] = g;
-            buf[2 * out_h * out_w + dst_base] = b;
+            buf[dst_base] = rgb[src_idx] as f32;
+            buf[out_h * out_w + dst_base] = rgb[src_idx + 1] as f32;
+            buf[2 * out_h * out_w + dst_base] = rgb[src_idx + 2] as f32;
         }
     }
     buf
@@ -158,236 +185,98 @@ fn preprocess_rgb(rgb: &[u8], width: u32, height: u32) -> Vec<f32> {
 
 // ── 相机内参估计 ───────────────────────────────────────────────
 
-/// 从图像尺寸估算相机内参矩阵。
-///
-/// 假设主点在图像中心，焦距 ≈ max(width, height)。
+/// 从图像尺寸估算相机内参矩阵。假设主点在中心，焦距 = max(w, h)。
 fn estimate_camera_matrix(width: u32, height: u32) -> [[f64; 3]; 3] {
     let f = width.max(height) as f64;
-    let cx = width as f64 / 2.0;
-    let cy = height as f64 / 2.0;
-    [[f, 0.0, cx], [0.0, f, cy], [0.0, 0.0, 1.0]]
+    [[f, 0.0, width as f64 / 2.0], [0.0, f, height as f64 / 2.0], [0.0, 0.0, 1.0]]
 }
 
 // ── solvePnP（DLT + nalgebra SVD） ─────────────────────────────
+// nalgebra 仅用于 12×12 SVD 求 DLT 零空间。项目已有 opencv crate，
+// 但 opencv 的 solve_pnp 需要额外的相机标定参数且行为不同，
+// 纯 Rust 实现更可控，与 onnx-detector feature 的条件编译更契合。
 
 /// Direct Linear Transform solvePnP。
-///
-/// 用 6 个 2D-3D 对应点（12 方程，12 未知数）估计旋转矩阵。
-/// 使用 nalgebra SVD 求 A 的零空间向量，再 SVD 正交化为 SO(3)。
 fn solve_pnp(
     points_2d: &[[f64; 2]; 6],
     points_3d: &[[f64; 3]; 6],
     camera_matrix: &[[f64; 3]; 3],
 ) -> Option<[[f64; 3]; 3]> {
+    let a_data = build_dlt_matrix(points_2d, points_3d, camera_matrix);
+    let p_vec = dlt_null_space(&a_data)?;
+    let r_raw = extract_rotation_raw(&p_vec);
+    orthogonalize_rotation(&r_raw)
+}
+
+/// 构建 DLT A 矩阵（12×12），行优先存储。
+fn build_dlt_matrix(
+    points_2d: &[[f64; 2]; 6],
+    points_3d: &[[f64; 3]; 6],
+    camera_matrix: &[[f64; 3]; 3],
+) -> [f64; 144] {
     let fx = camera_matrix[0][0];
     let fy = camera_matrix[1][1];
     let cx = camera_matrix[0][2];
     let cy = camera_matrix[1][2];
-
-    // 构建 A 矩阵 (12×12)
-    let mut a_data = [0.0f64; 144]; // 12 rows × 12 cols
+    let mut a = [0.0f64; 144];
     for i in 0..6 {
-        let [x3d, y3d, z3d] = points_3d[i];
+        let [x, y, z] = points_3d[i];
         let u = (points_2d[i][0] - cx) / fx;
         let v = (points_2d[i][1] - cy) / fy;
-        let row0 = 2 * i;
-        let row1 = 2 * i + 1;
-        // 行 row0
-        a_data[row0 * 12..row0 * 12 + 12].copy_from_slice(&[
-            x3d, y3d, z3d, 1.0, 0.0, 0.0, 0.0, 0.0, -u * x3d, -u * y3d, -u * z3d, -u,
-        ]);
-        // 行 row1
-        a_data[row1 * 12..row1 * 12 + 12].copy_from_slice(&[
-            0.0, 0.0, 0.0, 0.0, x3d, y3d, z3d, 1.0, -v * x3d, -v * y3d, -v * z3d, -v,
-        ]);
+        let r0 = 2 * i;
+        let r1 = r0 + 1;
+        a[r0 * 12..r0 * 12 + 12]
+            .copy_from_slice(&[x, y, z, 1.0, 0.0, 0.0, 0.0, 0.0, -u * x, -u * y, -u * z, -u]);
+        a[r1 * 12..r1 * 12 + 12]
+            .copy_from_slice(&[0.0, 0.0, 0.0, 0.0, x, y, z, 1.0, -v * x, -v * y, -v * z, -v]);
     }
+    a
+}
 
-    // nalgebra SVD — 找 A 的零空间向量（最小奇异值对应的右奇异向量）
-    let a_mat = nalgebra::DMatrix::from_row_slice(12, 12, &a_data);
+/// 用 nalgebra SVD 求 DLT 矩阵的零空间向量。
+fn dlt_null_space(a_data: &[f64; 144]) -> Option<Vec<f64>> {
+    let a_mat = nalgebra::DMatrix::from_row_slice(12, 12, a_data);
     let svd = SVD::new(a_mat, true, true);
-    let v_matrix = svd.v_t?;
-    // 最小奇异值对应的右奇异向量 = V^T 的最后一行
-    let last_row = v_matrix.row(11);
-    let p_vec: Vec<f64> = last_row.iter().copied().collect();
+    let v_t = svd.v_t.as_ref()?;
+    Some(v_t.row(11).iter().copied().collect())
+}
 
-    // 提取 R（前 3×3）和 t（第 4 列）
-    let mut r_raw = [[0.0f64; 3]; 3];
+/// 从 DLT 解向量提取原始旋转矩阵。
+fn extract_rotation_raw(p_vec: &[f64]) -> [[f64; 3]; 3] {
+    let mut r = [[0.0f64; 3]; 3];
     for i in 0..3 {
         for j in 0..3 {
-            r_raw[i][j] = p_vec[i * 4 + j];
+            r[i][j] = p_vec[i * 4 + j];
         }
     }
+    r
+}
 
-    // SVD 正交化为 SO(3)
-    let (u, _s, vt) = svd3x3(&r_raw)?;
-    let mut r_proper = [[0.0f64; 3]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            let mut s = 0.0;
-            for k in 0..3 {
-                s += u[i][k] * vt[k][j];
-            }
-            r_proper[i][j] = s;
-        }
-    }
-
-    // 确保 det(R) = +1
-    let det = det3x3(&r_proper);
-    if det < 0.0 {
-        for row in &mut r_proper {
+/// SVD 正交化为 SO(3)，确保 det(R) = +1。
+fn orthogonalize_rotation(r_raw: &[[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
+    let (u, _s, vt) = svd3x3(r_raw)?;
+    let mut r = mat_mul_3x3(&u, &vt);
+    if det3x3(&r) < 0.0 {
+        for row in &mut r {
             for x in row.iter_mut() {
                 *x = -*x;
             }
         }
     }
-
-    Some(r_proper)
+    Some(r)
 }
 
 // ── 线性代数工具 ───────────────────────────────────────────────
 
-/// 3×3 Jacobi SVD。
-///
-/// 返回 (U, sigma, V^T)，使得 A = U * diag(sigma) * V^T。
-fn svd3x3(a: &[[f64; 3]; 3]) -> Option<([[f64; 3]; 3], [f64; 3], [[f64; 3]; 3])> {
-    // 计算 A^T A
-    let mut ata = [[0.0f64; 3]; 3];
+/// 3×3 矩阵乘法。
+fn mat_mul_3x3(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut out = [[0.0f64; 3]; 3];
     for i in 0..3 {
         for j in 0..3 {
-            let mut s = 0.0;
-            for k in 0..3 {
-                s += a[k][i] * a[k][j];
-            }
-            ata[i][j] = s;
+            out[i][j] = (0..3).map(|k| a[i][k] * b[k][j]).sum();
         }
     }
-
-    // Jacobi 迭代求 A^T A 的特征值和特征向量（即 V）
-    let mut v = [[0.0f64; 3]; 3];
-    v[0][0] = 1.0;
-    v[1][1] = 1.0;
-    v[2][2] = 1.0;
-    let mut s = ata;
-
-    for _ in 0..100 {
-        let mut converged = true;
-        for p in 0..3 {
-            for q in (p + 1)..3 {
-                if s[p][q].abs() < 1e-15 {
-                    continue;
-                }
-                converged = false;
-                let tau = (s[q][q] - s[p][p]) / (2.0 * s[p][q]);
-                let t = if tau >= 0.0 {
-                    1.0 / (tau + (1.0 + tau * tau).sqrt())
-                } else {
-                    -1.0 / (-tau + (1.0 + tau * tau).sqrt())
-                };
-                let c = 1.0 / (1.0 + t * t).sqrt();
-                let st = t * c;
-
-                // 更新 S
-                let spq = s[p][q];
-                s[p][q] = 0.0;
-                s[q][p] = 0.0;
-                let spp = s[p][p];
-                let sqq = s[q][q];
-                s[p][p] = spp - t * spq;
-                s[q][q] = sqq + t * spq;
-                for r in 0..3 {
-                    if r != p && r != q {
-                        let srp = s[r][p];
-                        let srq = s[r][q];
-                        s[r][p] = c * srp - st * srq;
-                        s[p][r] = s[r][p];
-                        s[r][q] = st * srp + c * srq;
-                        s[q][r] = s[r][q];
-                    }
-                }
-
-                // 更新 V
-                for r in 0..3 {
-                    let vrp = v[r][p];
-                    let vrq = v[r][q];
-                    v[r][p] = c * vrp - st * vrq;
-                    v[r][q] = st * vrp + c * vrq;
-                }
-            }
-        }
-        if converged {
-            break;
-        }
-    }
-
-    // 奇异值
-    let mut sigma = [
-        s[0][0].max(0.0).sqrt(),
-        s[1][1].max(0.0).sqrt(),
-        s[2][2].max(0.0).sqrt(),
-    ];
-
-    // 降序排列
-    let mut indices = [0, 1, 2];
-    indices.sort_by(|&i, &j| {
-        sigma[j]
-            .partial_cmp(&sigma[i])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let mut sorted_sigma = [0.0; 3];
-    let mut sorted_v = [[0.0; 3]; 3];
-    for (new_i, &old_i) in indices.iter().enumerate() {
-        sorted_sigma[new_i] = sigma[old_i];
-        for r in 0..3 {
-            sorted_v[r][new_i] = v[r][old_i];
-        }
-    }
-    sigma = sorted_sigma;
-    v = sorted_v;
-
-    // U = A * V * Sigma^{-1}
-    let mut u = [[0.0f64; 3]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            if sigma[j] > 1e-10 {
-                let mut s_val = 0.0;
-                for k in 0..3 {
-                    s_val += a[i][k] * v[k][j];
-                }
-                u[i][j] = s_val / sigma[j];
-            } else {
-                u[i][j] = if i == j { 1.0 } else { 0.0 };
-            }
-        }
-    }
-
-    // 正交化 U（Gram-Schmidt）
-    for col in 0..3 {
-        if sigma[col] < 1e-10 {
-            for prev in 0..col {
-                let dot: f64 = (0..3).map(|i| u[i][col] * u[i][prev]).sum();
-                for i in 0..3 {
-                    u[i][col] -= dot * u[i][prev];
-                }
-            }
-            let norm: f64 = (0..3).map(|i| u[i][col] * u[i][col]).sum::<f64>().sqrt();
-            if norm > 1e-10 {
-                for i in 0..3 {
-                    u[i][col] /= norm;
-                }
-            }
-        }
-    }
-
-    // V^T
-    let mut vt = [[0.0f64; 3]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            vt[i][j] = v[j][i];
-        }
-    }
-
-    Some((u, sigma, vt))
+    out
 }
 
 /// 3×3 行列式。
@@ -395,6 +284,161 @@ fn det3x3(m: &[[f64; 3]; 3]) -> f64 {
     m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+}
+
+/// 3×3 Jacobi SVD。
+///
+/// 返回 (U, sigma, V^T)，使得 A = U * diag(sigma) * V^T。
+fn svd3x3(a: &[[f64; 3]; 3]) -> Option<([[f64; 3]; 3], [f64; 3], [[f64; 3]; 3])> {
+    let ata = mat_transpose_times_self(a);
+    let (mut v, mut s) = jacobi_eigen_3x3(&ata);
+    let mut sigma = eigenvalues_to_sigma(&s);
+    sort_descending(&mut sigma, &mut v);
+    let u = compute_u(a, &v, &sigma);
+    let u = orthogonalize_u(u, &sigma);
+    let vt = transpose_3x3(&v);
+    Some((u, sigma, vt))
+}
+
+/// 计算 A^T A。
+fn mat_transpose_times_self(a: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut ata = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            ata[i][j] = (0..3).map(|k| a[k][i] * a[k][j]).sum();
+        }
+    }
+    ata
+}
+
+/// Jacobi 迭代求 3×3 对称矩阵的特征值和特征向量。
+fn jacobi_eigen_3x3(matrix: &[[f64; 3]; 3]) -> ([[f64; 3]; 3], [[f64; 3]; 3]) {
+    let mut v = [[0.0f64; 3]; 3];
+    v[0][0] = 1.0;
+    v[1][1] = 1.0;
+    v[2][2] = 1.0;
+    let mut s = *matrix;
+
+    for _ in 0..JACOBI_MAX_ITER {
+        let mut converged = true;
+        for p in 0..3 {
+            for q in (p + 1)..3 {
+                if s[p][q].abs() < EPSILON_OFF_DIAG {
+                    continue;
+                }
+                converged = false;
+                jacobi_rotate(&mut s, &mut v, p, q);
+            }
+        }
+        if converged {
+            break;
+        }
+    }
+    (v, s)
+}
+
+/// 对 (p, q) 位置执行一次 Jacobi 旋转。
+fn jacobi_rotate(s: &mut [[f64; 3]; 3], v: &mut [[f64; 3]; 3], p: usize, q: usize) {
+    let tau = (s[q][q] - s[p][p]) / (2.0 * s[p][q]);
+    let t = if tau >= 0.0 {
+        1.0 / (tau + (1.0 + tau * tau).sqrt())
+    } else {
+        -1.0 / (-tau + (1.0 + tau * tau).sqrt())
+    };
+    let c = 1.0 / (1.0 + t * t).sqrt();
+    let st = t * c;
+
+    let spq = s[p][q];
+    s[p][q] = 0.0;
+    s[q][p] = 0.0;
+    let spp = s[p][p];
+    let sqq = s[q][q];
+    s[p][p] = spp - t * spq;
+    s[q][q] = sqq + t * spq;
+    for r in 0..3 {
+        if r != p && r != q {
+            let srp = s[r][p];
+            let srq = s[r][q];
+            s[r][p] = c * srp - st * srq;
+            s[p][r] = s[r][p];
+            s[r][q] = st * srp + c * srq;
+            s[q][r] = s[r][q];
+        }
+    }
+    for r in 0..3 {
+        let vrp = v[r][p];
+        let vrq = v[r][q];
+        v[r][p] = c * vrp - st * vrq;
+        v[r][q] = st * vrp + c * vrq;
+    }
+}
+
+/// 从对称矩阵的特征值计算奇异值（sqrt of max(eigenvalue, 0)）。
+fn eigenvalues_to_sigma(s: &[[f64; 3]; 3]) -> [f64; 3] {
+    [s[0][0].max(0.0).sqrt(), s[1][1].max(0.0).sqrt(), s[2][2].max(0.0).sqrt()]
+}
+
+/// 按奇异值降序排列 sigma 和对应的 V 列。
+fn sort_descending(sigma: &mut [f64; 3], v: &mut [[f64; 3]; 3]) {
+    let mut indices = [0, 1, 2];
+    indices.sort_by(|&i, &j| {
+        sigma[j].partial_cmp(&sigma[i]).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let orig_sigma = *sigma;
+    let orig_v = *v;
+    for (new_i, &old_i) in indices.iter().enumerate() {
+        sigma[new_i] = orig_sigma[old_i];
+        for r in 0..3 {
+            v[r][new_i] = orig_v[r][old_i];
+        }
+    }
+}
+
+/// U = A * V * Sigma^{-1}。
+fn compute_u(a: &[[f64; 3]; 3], v: &[[f64; 3]; 3], sigma: &[f64; 3]) -> [[f64; 3]; 3] {
+    let mut u = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            if sigma[j] > EPSILON {
+                u[i][j] = (0..3).map(|k| a[i][k] * v[k][j]).sum::<f64>() / sigma[j];
+            } else {
+                u[i][j] = if i == j { 1.0 } else { 0.0 };
+            }
+        }
+    }
+    u
+}
+
+/// Gram-Schmidt 正交化 U 中对应零奇异值的列。
+fn orthogonalize_u(mut u: [[f64; 3]; 3], sigma: &[f64; 3]) -> [[f64; 3]; 3] {
+    for col in 0..3 {
+        if sigma[col] < EPSILON {
+            for prev in 0..col {
+                let dot: f64 = (0..3).map(|i| u[i][col] * u[i][prev]).sum();
+                for i in 0..3 {
+                    u[i][col] -= dot * u[i][prev];
+                }
+            }
+            let norm: f64 = (0..3).map(|i| u[i][col] * u[i][col]).sum::<f64>().sqrt();
+            if norm > EPSILON {
+                for i in 0..3 {
+                    u[i][col] /= norm;
+                }
+            }
+        }
+    }
+    u
+}
+
+/// 3×3 矩阵转置。
+fn transpose_3x3(m: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut t = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            t[i][j] = m[j][i];
+        }
+    }
+    t
 }
 
 /// 从旋转矩阵提取 yaw 和 pitch（度数）。
@@ -442,14 +486,7 @@ mod tests {
 
     // ── solve_pnp ──────────────────────────────────────────────
 
-    /// 用已知旋转和平移生成 6 个 2D 投影点。
-    fn project_points(
-        r: &[[f64; 3]; 3],
-        tz: f64,
-        f: f64,
-        cx: f64,
-        cy: f64,
-    ) -> [[f64; 2]; 6] {
+    fn project_points(r: &[[f64; 3]; 3], tz: f64, f: f64, cx: f64, cy: f64) -> [[f64; 2]; 6] {
         std::array::from_fn(|i| {
             let [x, y, z] = MODEL_3D[i];
             let rx = r[0][0] * x + r[0][1] * y + r[0][2] * z;
@@ -461,11 +498,8 @@ mod tests {
 
     #[test]
     fn solve_pnp_identity_projection() {
-        let f = 1000.0;
-        let cam = [[f, 0.0, 160.0], [0.0, f, 120.0], [0.0, 0.0, 1.0]];
-        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let pts = project_points(&identity, 500.0, f, 160.0, 120.0);
-
+        let cam = [[1000.0, 0.0, 160.0], [0.0, 1000.0, 120.0], [0.0, 0.0, 1.0]];
+        let pts = project_points(&identity_matrix(), 500.0, 1000.0, 160.0, 120.0);
         let r = solve_pnp(&pts, &MODEL_3D, &cam).unwrap();
         let (yaw, pitch) = rotation_to_yaw_pitch(&r);
         assert!(yaw.abs() < 5.0, "yaw={yaw}");
@@ -474,17 +508,9 @@ mod tests {
 
     #[test]
     fn solve_pnp_detects_left_turn() {
-        let f = 1000.0;
-        let cam = [[f, 0.0, 160.0], [0.0, f, 120.0], [0.0, 0.0, 1.0]];
-        // 绕 Y 轴旋转 -25 度（左转）
-        let angle = -25.0_f64.to_radians();
-        let r_true = [
-            [angle.cos(), 0.0, angle.sin()],
-            [0.0, 1.0, 0.0],
-            [-angle.sin(), 0.0, angle.cos()],
-        ];
-        let pts = project_points(&r_true, 500.0, f, 160.0, 120.0);
-
+        let cam = [[1000.0, 0.0, 160.0], [0.0, 1000.0, 120.0], [0.0, 0.0, 1.0]];
+        let r_true = yaw_rotation_matrix(-25.0);
+        let pts = project_points(&r_true, 500.0, 1000.0, 160.0, 120.0);
         let r = solve_pnp(&pts, &MODEL_3D, &cam).unwrap();
         let (yaw, pitch) = rotation_to_yaw_pitch(&r);
         assert!((yaw - (-25.0)).abs() < 5.0, "yaw={yaw}");
@@ -493,16 +519,9 @@ mod tests {
 
     #[test]
     fn solve_pnp_detects_right_turn() {
-        let f = 1000.0;
-        let cam = [[f, 0.0, 160.0], [0.0, f, 120.0], [0.0, 0.0, 1.0]];
-        let angle = 35.0_f64.to_radians();
-        let r_true = [
-            [angle.cos(), 0.0, angle.sin()],
-            [0.0, 1.0, 0.0],
-            [-angle.sin(), 0.0, angle.cos()],
-        ];
-        let pts = project_points(&r_true, 500.0, f, 160.0, 120.0);
-
+        let cam = [[1000.0, 0.0, 160.0], [0.0, 1000.0, 120.0], [0.0, 0.0, 1.0]];
+        let r_true = yaw_rotation_matrix(35.0);
+        let pts = project_points(&r_true, 500.0, 1000.0, 160.0, 120.0);
         let r = solve_pnp(&pts, &MODEL_3D, &cam).unwrap();
         let (yaw, pitch) = rotation_to_yaw_pitch(&r);
         assert!((yaw - 35.0).abs() < 5.0, "yaw={yaw}");
@@ -511,41 +530,23 @@ mod tests {
 
     #[test]
     fn solve_pnp_detects_pitch_up() {
-        let f = 1000.0;
-        let cam = [[f, 0.0, 160.0], [0.0, f, 120.0], [0.0, 0.0, 1.0]];
-        // 绕 X 轴正向旋转 20 度（仰头，camera Y 轴向下时正向 = 上仰）
-        let angle = 20.0_f64.to_radians();
-        let r_true = [
-            [1.0, 0.0, 0.0],
-            [0.0, angle.cos(), -angle.sin()],
-            [0.0, angle.sin(), angle.cos()],
-        ];
-        let pts = project_points(&r_true, 500.0, f, 160.0, 120.0);
-
+        let cam = [[1000.0, 0.0, 160.0], [0.0, 1000.0, 120.0], [0.0, 0.0, 1.0]];
+        let r_true = pitch_rotation_matrix(20.0);
+        let pts = project_points(&r_true, 500.0, 1000.0, 160.0, 120.0);
         let r = solve_pnp(&pts, &MODEL_3D, &cam).unwrap();
         let (yaw, pitch) = rotation_to_yaw_pitch(&r);
         assert!(yaw.abs() < 5.0, "yaw={yaw}");
-        // 仰头应为正 pitch
         assert!(pitch > 5.0, "仰头应为正 pitch, got {pitch}");
     }
 
     #[test]
     fn solve_pnp_detects_pitch_down() {
-        let f = 1000.0;
-        let cam = [[f, 0.0, 160.0], [0.0, f, 120.0], [0.0, 0.0, 1.0]];
-        // 绕 X 轴负向旋转 15 度（低头）
-        let angle = -15.0_f64.to_radians();
-        let r_true = [
-            [1.0, 0.0, 0.0],
-            [0.0, angle.cos(), -angle.sin()],
-            [0.0, angle.sin(), angle.cos()],
-        ];
-        let pts = project_points(&r_true, 500.0, f, 160.0, 120.0);
-
+        let cam = [[1000.0, 0.0, 160.0], [0.0, 1000.0, 120.0], [0.0, 0.0, 1.0]];
+        let r_true = pitch_rotation_matrix(-15.0);
+        let pts = project_points(&r_true, 500.0, 1000.0, 160.0, 120.0);
         let r = solve_pnp(&pts, &MODEL_3D, &cam).unwrap();
         let (yaw, pitch) = rotation_to_yaw_pitch(&r);
         assert!(yaw.abs() < 5.0, "yaw={yaw}");
-        // 低头应为负 pitch
         assert!(pitch < -5.0, "低头应为负 pitch, got {pitch}");
     }
 
@@ -553,29 +554,15 @@ mod tests {
 
     #[test]
     fn svd3x3_identity() {
-        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let (u, s, vt) = svd3x3(&identity).unwrap();
+        let (u, s, vt) = svd3x3(&identity_matrix()).unwrap();
         for i in 0..3 {
             assert!((s[i] - 1.0).abs() < 0.01, "sigma[{i}]={}", s[i]);
         }
-        let mut reconstructed = [[0.0f64; 3]; 3];
-        for i in 0..3 {
-            for j in 0..3 {
-                let mut val = 0.0;
-                for k in 0..3 {
-                    val += u[i][k] * s[k] * vt[k][j];
-                }
-                reconstructed[i][j] = val;
-            }
-        }
+        let recon = mat_mul_3x3(&mat_mul_3x3(&u, &diag_matrix(&s)), &vt);
         for i in 0..3 {
             for j in 0..3 {
                 let expected = if i == j { 1.0 } else { 0.0 };
-                assert!(
-                    (reconstructed[i][j] - expected).abs() < 0.01,
-                    "recon[{i}][{j}]={}",
-                    reconstructed[i][j]
-                );
+                assert!((recon[i][j] - expected).abs() < 0.01, "recon[{i}][{j}]={}", recon[i][j]);
             }
         }
     }
@@ -589,7 +576,7 @@ mod tests {
         assert!(s[2].abs() < 0.1, "sigma[2]={}", s[2]);
     }
 
-    // ── estimate_camera_matrix ─────────────────────────────────
+    // ── 其他 ───────────────────────────────────────────────────
 
     #[test]
     fn camera_matrix_centered() {
@@ -599,8 +586,6 @@ mod tests {
         assert!((cam[1][2] - 240.0).abs() < 0.01);
     }
 
-    // ── preprocess_rgb ─────────────────────────────────────────
-
     #[test]
     fn preprocess_output_size() {
         let rgb = vec![0u8; 640 * 480 * 3];
@@ -608,10 +593,28 @@ mod tests {
         assert_eq!(out.len(), 3 * 240 * 320);
     }
 
-    // ── MODEL_3D ───────────────────────────────────────────────
-
     #[test]
     fn model_3d_nose_at_origin() {
         assert_eq!(MODEL_3D[2], [0.0, 0.0, 0.0]);
+    }
+
+    // ── 测试辅助 ───────────────────────────────────────────────
+
+    fn identity_matrix() -> [[f64; 3]; 3] {
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    }
+
+    fn yaw_rotation_matrix(deg: f64) -> [[f64; 3]; 3] {
+        let r = deg.to_radians();
+        [[r.cos(), 0.0, r.sin()], [0.0, 1.0, 0.0], [-r.sin(), 0.0, r.cos()]]
+    }
+
+    fn pitch_rotation_matrix(deg: f64) -> [[f64; 3]; 3] {
+        let r = deg.to_radians();
+        [[1.0, 0.0, 0.0], [0.0, r.cos(), -r.sin()], [0.0, r.sin(), r.cos()]]
+    }
+
+    fn diag_matrix(d: &[f64; 3]) -> [[f64; 3]; 3] {
+        [[d[0], 0.0, 0.0], [0.0, d[1], 0.0], [0.0, 0.0, d[2]]]
     }
 }
