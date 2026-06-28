@@ -67,11 +67,17 @@ YuNet 是 OpenCV 官方维护的人脸检测模型，除了边界框，还输出
 
 **下巴估算精度**：大角度旋转（>45°）时下巴估算偏差增大，可能影响 pitch 准确度。
 
-### 延迟预估（待实测）
+### 延迟实测（Windows 11, i5/Ryzen 5）
 
-- YuNet 推理：~5-15 ms（CPU，340×240 分辨率）
-- solvePnP（纯 Rust DLT）：< 0.1 ms
-- 总计：~5-15 ms（预估），**需要在 Windows i5/Ryzen 5 上实测**
+黑帧 640×480，30 次取样（2026-06-28）：
+
+| 指标 | 值 |
+|------|-----|
+| P50 | 1.43 ms |
+| P95 | 1.55 ms |
+| P99 | 1.57 ms |
+
+远低于 30 ms 阈值。包含完整流程：预处理 + YuNet 推理 + DLT solvePnP。
 
 ## 备选方案
 
@@ -95,7 +101,7 @@ YuNet 是 OpenCV 官方维护的人脸检测模型，除了边界框，还输出
 | 添加 `ort`/`nalgebra` 依赖 | ✅ 已完成 |
 | 实现 `YuNetDetector` | ✅ 已完成（`src-tauri/src/monitoring/onnx_detector.rs`） |
 | 单元测试（合成投影点） | ✅ 12 个测试全绿 |
-| Windows 延迟实测（P50/P95） | ⬜ 待执行，见 `docs/m4a-spike-procedure.md` |
+| Windows 延迟实测（P50/P95） | ✅ P95=1.55 ms |
 | 手动 5 姿态验证（真实摄像头） | ⬜ 待执行 |
 
 ## 签署

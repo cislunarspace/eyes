@@ -38,7 +38,15 @@ nalgebra = { version = "0.33", optional = true }
 - `YuNetDetector::new(model_path)` — 加载模型
 - `detect(rgb, width, height)` — 完整推理流程
 
-### ⬜ Step 4: 运行延迟测试（需要你执行）
+### ✅ Step 4: 运行延迟测试
+
+已完成。实测数据（Windows 11，黑帧 640×480，30 次）：
+
+```
+P50=1.43 ms  P95=1.55 ms  P99=1.57 ms
+```
+
+远低于 30 ms 阈值。运行方式：
 
 **方式 A — probe 二进制（含简易延迟统计）：**
 
@@ -106,7 +114,7 @@ cv2.destroyAllWindows()
 - [x] 模型文件已下载（~232 KB）
 - [x] `ort` / `nalgebra` 依赖成功编译
 - [x] 检测器实现完成（12 个单元测试全绿）
-- [ ] **P95 延迟 < 30 ms**（Step 4 实测后勾选）
+- [x] **P95 延迟 < 30 ms** — 实测 1.55 ms ✅
 - [ ] **5 种姿态正确识别**（Step 5 手动测试后勾选）
 
 ## 已知限制
