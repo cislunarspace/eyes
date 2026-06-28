@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use app_shell::desktop::{create_tray, handle_second_instance, handle_window_event};
 use app_state::AppState;
-use commands::{get_config, get_status, set_camera_index, spawn_worker};
+use commands::{get_config, get_status, set_camera_index, snooze, resume, spawn_worker};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -32,7 +32,8 @@ pub fn run() {
             get_status,
             get_config,
             set_camera_index,
-            // ponytail: M5/M6 接线后继续添加更多命令
+            snooze,
+            resume,
         ])
         .run(tauri::generate_context!())
         .expect("运行 Eyes 时出错");

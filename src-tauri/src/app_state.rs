@@ -17,7 +17,7 @@ pub enum CameraState {
 pub struct StatusSnapshot {
     pub pose_state: PoseState,
     pub yaw: Option<f64>,
-    pub roll: Option<f64>,
+    pub pitch: Option<f64>,
     pub warning_level: WarningLevel,
     pub camera_state: CameraState,
     pub snooze_state: SnoozeState,
@@ -38,7 +38,7 @@ impl AppState {
             status: StatusSnapshot {
                 pose_state: PoseState::NoFace,
                 yaw: None,
-                roll: None,
+                pitch: None,
                 warning_level: WarningLevel::Normal,
                 camera_state: CameraState::Starting,
                 snooze_state: SnoozeState::Inactive,

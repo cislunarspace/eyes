@@ -54,6 +54,10 @@ impl ConfigStore {
         }
     }
 
+    pub fn config_dir(&self) -> &Path {
+        &self.config_dir
+    }
+
     pub fn load(&self) -> io::Result<AppConfig> {
         fs::create_dir_all(&self.config_dir)?;
         let path = self.config_path();
