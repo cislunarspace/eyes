@@ -271,6 +271,16 @@ impl PostureTickEngine {
         self.snoozed = false;
     }
 
+    /// 当前综合警告级别（取两轴中更严重者）。
+    pub fn warning_level(&self) -> WarningLevel {
+        match (self.yaw_oa.warning_level, self.pitch_oa.warning_level) {
+            (WarningLevel::Severe, _) | (_, WarningLevel::Severe) => WarningLevel::Severe,
+            (WarningLevel::Warning, _) | (_, WarningLevel::Warning) => WarningLevel::Warning,
+            (WarningLevel::Corrected, _) | (_, WarningLevel::Corrected) => WarningLevel::Corrected,
+            _ => WarningLevel::Normal,
+        }
+    }
+
     /// 双轴 tick。
     ///
     /// - yaw_state / pitch_state 各自独立生成 Correction 和 WarningLevelChanged 事件。

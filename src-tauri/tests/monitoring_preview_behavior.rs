@@ -1,6 +1,6 @@
 use eyes_lib::monitoring::{
     preview::Frame,
-    worker::{FrameSource, MonitoringWorker, WorkerEvent},
+    worker::{FrameSource, MonitoringWorker},
 };
 
 #[derive(Debug)]
@@ -15,18 +15,16 @@ impl FrameSource for FakeCamera {
 }
 
 #[test]
-fn worker_tick_emits_preview_frame_from_camera_source() {
+fn worker_tick_returns_preview_frame_from_camera_source() {
     let frame = Frame::rgb(2, 1, vec![255, 0, 0, 0, 255, 0]).unwrap();
     let mut worker = MonitoringWorker::new(FakeCamera {
         frames: vec![frame],
-    });
+    }, None, Default::default());
 
-    let events = worker.tick();
+    let output = worker.tick(0.1);
 
-    assert_eq!(events.len(), 1);
-    let WorkerEvent::PreviewFrame(preview) = &events[0] else {
-        panic!("expected preview frame event");
-    };
+    assert!(output.camera_ok);
+    let preview = output.preview.expect("expected preview frame");
     assert_eq!(preview.width, 2);
     assert_eq!(preview.height, 1);
     assert!(preview.image_data_url.starts_with("data:image/png;base64,"));
@@ -47,9 +45,11 @@ fn worker_tick_reports_camera_unavailable_without_crashing() {
         }
     }
 
-    let mut worker = MonitoringWorker::new(UnavailableCamera);
+    let mut worker = MonitoringWorker::new(UnavailableCamera, None, Default::default());
+    let output = worker.tick(0.1);
 
-    assert_eq!(worker.tick(), vec![WorkerEvent::CameraUnavailable]);
+    assert!(!output.camera_ok);
+    assert!(output.sense_events.is_empty());
 }
 
 #[test]
@@ -69,11 +69,12 @@ fn worker_reports_camera_unavailable_when_read_fails_after_success() {
         }
     }
 
-    let mut worker = MonitoringWorker::new(FailingAfterOne { remaining: 1 });
+    let mut worker = MonitoringWorker::new(FailingAfterOne { remaining: 1 }, None, Default::default());
 
-    let events = worker.tick();
-    assert!(matches!(events[0], WorkerEvent::PreviewFrame(_)));
+    let output = worker.tick(0.1);
+    assert!(output.camera_ok);
+    assert!(output.preview.is_some());
 
-    let events = worker.tick();
-    assert_eq!(events, vec![WorkerEvent::CameraUnavailable]);
+    let output = worker.tick(0.1);
+    assert!(!output.camera_ok);
 }

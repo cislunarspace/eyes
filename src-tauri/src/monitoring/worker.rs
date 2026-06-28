@@ -1,9 +1,7 @@
 use super::detector::Detector;
 use super::preview::{encode_preview, Frame, PreviewFrame};
 use crate::domain::classifier::{self, PoseClassification, PoseState};
-use crate::domain::posture_tick_engine::{PostureTickEngine, SenseEvent};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use crate::domain::posture_tick_engine::{PostureTickEngine, SenseEvent, WarningLevel};
 
 /// 帧来源（摄像头）。
 pub trait FrameSource {
@@ -19,6 +17,7 @@ pub struct WorkerOutput {
     pub pitch_state: PoseState,
     pub yaw: Option<f64>,
     pub pitch: Option<f64>,
+    pub warning_level: WarningLevel,
     pub sense_events: Vec<SenseEvent>,
 }
 
@@ -34,7 +33,7 @@ pub struct MonitoringWorker<C> {
     detector: Option<Box<dyn Detector>>,
     engine: PostureTickEngine,
     state: WorkerState,
-    snoozed: Arc<AtomicBool>,
+    snoozed: bool,
 }
 
 impl<C: FrameSource> MonitoringWorker<C> {
@@ -42,7 +41,6 @@ impl<C: FrameSource> MonitoringWorker<C> {
         camera: C,
         detector: Option<Box<dyn Detector>>,
         engine: PostureTickEngine,
-        snoozed: Arc<AtomicBool>,
     ) -> Self {
         Self {
             camera,
@@ -51,8 +49,12 @@ impl<C: FrameSource> MonitoringWorker<C> {
             state: WorkerState {
                 prev_classification: PoseClassification::default(),
             },
-            snoozed,
+            snoozed: false,
         }
+    }
+
+    pub fn set_snoozed(&mut self, snoozed: bool) {
+        self.snoozed = snoozed;
     }
 
     pub fn tick(&mut self, dt: f64) -> WorkerOutput {
@@ -80,7 +82,7 @@ impl<C: FrameSource> MonitoringWorker<C> {
         self.state.prev_classification = classification;
 
         // tick 引擎（snoozed 时跳过事件生成）
-        let sense_events = if self.snoozed.load(Ordering::Relaxed) {
+        let sense_events = if self.snoozed {
             Vec::new()
         } else {
             self.engine
@@ -94,6 +96,7 @@ impl<C: FrameSource> MonitoringWorker<C> {
             pitch_state: classification.pitch_state,
             yaw: detected_pose.map(|p| p.yaw),
             pitch: detected_pose.map(|p| p.pitch),
+            warning_level: self.engine.warning_level(),
             sense_events,
         }
     }
@@ -106,6 +109,7 @@ impl<C: FrameSource> MonitoringWorker<C> {
             pitch_state: PoseState::NoFace,
             yaw: None,
             pitch: None,
+            warning_level: WarningLevel::Normal,
             sense_events: Vec::new(),
         }
     }
@@ -164,7 +168,6 @@ mod tests {
             camera,
             det,
             PostureTickEngine::default(),
-            Arc::new(AtomicBool::new(false)),
         )
     }
 
@@ -215,14 +218,14 @@ mod tests {
 
     #[test]
     fn snooze_suppresses_sense_events() {
-        let snoozed = Arc::new(AtomicBool::new(true));
         let cam = FakeCamera {
             frames: vec![Some(fake_frame(640, 480))],
             idx: 0,
         };
         let det: Option<Box<dyn Detector>> =
             Some(Box::new(FakeDetector { pose: Some(HeadPose { yaw: 6.0, pitch: 0.0 }) }));
-        let mut w = MonitoringWorker::new(cam, det, PostureTickEngine::default(), snoozed);
+        let mut w = MonitoringWorker::new(cam, det, PostureTickEngine::default());
+        w.set_snoozed(true);
         let out = w.tick(0.1);
         assert!(out.sense_events.is_empty());
         assert_eq!(out.pose_state, PoseState::OffAxisRight);

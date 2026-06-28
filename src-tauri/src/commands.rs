@@ -1,16 +1,44 @@
+pub mod worker_command;
+
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::app_shell::desktop::rebuild_tray;
-use crate::app_state::{CameraState, SharedAppState, SharedCalibration, SharedConfig, SharedSnooze};
+use crate::app_state::{CameraState, SharedAppState, SharedCalibration, SharedConfig};
+use crate::commands::worker_command::{WorkerCommand, WorkerSender};
 use crate::domain::calibration::CalibrationSession;
 use crate::domain::config::{AppConfig, ConfigStore};
-use crate::domain::event_log::{AppEventKind, EventLog};
-use crate::domain::posture_tick_engine::SenseEvent;
 use crate::domain::snooze;
-#[allow(unused_imports)]
-use crate::monitoring::worker::{MonitoringWorker, WorkerOutput};
+#[cfg(feature = "opencv-camera")]
+use crate::domain::event_log::{AppEventKind, EventLog};
+#[cfg(feature = "opencv-camera")]
+use crate::domain::posture_tick_engine::SenseEvent;
+#[cfg(feature = "opencv-camera")]
+use crate::monitoring::worker::WorkerOutput;
+
+/// 从 Tauri 资源目录加载 ONNX 检测器。
+///
+/// 模型文件通过 `bundle.resources` 打包在资源目录中。
+#[cfg(all(feature = "opencv-camera", feature = "onnx-detector"))]
+fn load_detector(app_handle: &AppHandle) -> Option<Box<dyn crate::monitoring::detector::Detector>> {
+    use tauri::Manager;
+    let resource_dir = app_handle.path().resource_dir().ok()?;
+    let model_path = resource_dir.join("face_detection_yunet_2023mar.onnx");
+    if !model_path.exists() {
+        return None;
+    }
+    let path_str = model_path.to_string_lossy().to_string();
+    match crate::monitoring::onnx_detector::YuNetDetector::new(&path_str) {
+        Ok(det) => Some(Box::new(det)),
+        Err(_) => None,
+    }
+}
+
+#[cfg(all(feature = "opencv-camera", not(feature = "onnx-detector")))]
+fn load_detector(_app_handle: &AppHandle) -> Option<Box<dyn crate::monitoring::detector::Detector>> {
+    None
+}
 
 // ── 查询命令 ─────────────────────────────────────────────────────
 
@@ -78,6 +106,7 @@ pub fn set_camera_index(
     index: u32,
     state: State<'_, SharedAppState>,
     shared_config: State<'_, SharedConfig>,
+    worker_tx: State<'_, Mutex<WorkerSender>>,
 ) -> Result<(), String> {
     {
         let mut app = state.lock().map_err(|e| e.to_string())?;
@@ -87,6 +116,9 @@ pub fn set_camera_index(
     if let Ok(mut cfg) = shared_config.write() {
         cfg.camera_index = index;
     }
+    // 通知 worker 立即切换摄像头
+    let tx = worker_tx.lock().map_err(|e| e.to_string())?;
+    tx.send(WorkerCommand::SetCameraIndex(index))?;
     Ok(())
 }
 
@@ -98,22 +130,32 @@ pub fn set_camera_index(
 pub fn snooze(
     minutes: u32,
     state: State<'_, SharedAppState>,
-    snoozed: State<'_, SharedSnooze>,
+    worker_tx: State<'_, Mutex<WorkerSender>>,
 ) -> Result<(), String> {
-    let mut app = state.lock().map_err(|e| e.to_string())?;
-    app.status.snooze_state = if minutes == 0 {
-        snooze::SnoozeState::Indefinite
+    // 更新本地状态快照（前端 get_status 立即可读）
+    {
+        let mut app = state.lock().map_err(|e| e.to_string())?;
+        app.status.snooze_state = if minutes == 0 {
+            snooze::SnoozeState::Indefinite
+        } else {
+            let until = time::OffsetDateTime::now_utc()
+                + time::Duration::minutes(minutes as i64);
+            let until_iso = until
+                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .unwrap_or_default();
+            snooze::SnoozeState::Active {
+                until_iso: until_iso.clone(),
+            }
+        };
+    }
+    // 通过 channel 通知 worker 暂停提醒
+    let seconds = if minutes == 0 {
+        f64::INFINITY
     } else {
-        let until = time::OffsetDateTime::now_utc()
-            + time::Duration::minutes(minutes as i64);
-        let until_iso = until
-            .format(&time::format_description::well_known::Iso8601::DEFAULT)
-            .unwrap_or_default();
-        snooze::SnoozeState::Active {
-            until_iso: until_iso.clone(),
-        }
+        (minutes as f64) * 60.0
     };
-    snoozed.store(true, Ordering::Relaxed);
+    let tx = worker_tx.lock().map_err(|e| e.to_string())?;
+    tx.send(WorkerCommand::Snooze(seconds))?;
     Ok(())
 }
 
@@ -121,11 +163,14 @@ pub fn snooze(
 #[tauri::command]
 pub fn resume(
     state: State<'_, SharedAppState>,
-    snoozed: State<'_, SharedSnooze>,
+    worker_tx: State<'_, Mutex<WorkerSender>>,
 ) -> Result<(), String> {
-    let mut app = state.lock().map_err(|e| e.to_string())?;
-    app.status.snooze_state = snooze::SnoozeState::Inactive;
-    snoozed.store(false, Ordering::Relaxed);
+    {
+        let mut app = state.lock().map_err(|e| e.to_string())?;
+        app.status.snooze_state = snooze::SnoozeState::Inactive;
+    }
+    let tx = worker_tx.lock().map_err(|e| e.to_string())?;
+    tx.send(WorkerCommand::Resume)?;
     Ok(())
 }
 
@@ -195,44 +240,53 @@ pub fn cancel_calibration(
 
 /// 后台工作线程，约 10 Hz 驱动 tick，向前端发送事件。
 /// setup 时调用一次，运行在独立线程上。
+/// 返回 `WorkerSender`，前端命令通过它向 worker 发送控制指令。
+#[allow(unused_variables)]
 pub fn spawn_worker(
     app_handle: AppHandle,
     shared_config: SharedConfig,
-    _shared_calibration: SharedCalibration,
-    snoozed: SharedSnooze,
-) {
+    shared_calibration: SharedCalibration,
+    shared_state: SharedAppState,
+) -> WorkerSender {
     use std::time::Duration;
 
+    let (worker_tx, worker_rx) = worker_command::channel();
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
-
-    // 事件日志
-    let config_dir =
-        crate::domain::config::ConfigStore::new(dirs::config_dir().unwrap_or_default());
-    let event_log = EventLog::new(config_dir.config_dir().to_path_buf());
 
     std::thread::spawn(move || {
         #[cfg(feature = "opencv-camera")]
         {
             use crate::monitoring::opencv_camera::OpenCvCamera;
             use crate::domain::posture_tick_engine::PostureTickEngine;
-            let mut retry_at: Option<std::time::Instant> = None;
+            use crate::monitoring::worker::MonitoringWorker;
 
-            // 从共享配置读取初始摄像头索引
-            let camera_index = shared_config
+            // 事件日志
+            let config_dir =
+                crate::domain::config::ConfigStore::new(dirs::config_dir().unwrap_or_default());
+            let event_log = EventLog::new(config_dir.config_dir().to_path_buf());
+
+            let mut retry_at: Option<std::time::Instant> = None;
+            let mut camera_index = shared_config
                 .read()
                 .map(|c| c.camera_index)
                 .unwrap_or(0);
+            let mut snooze_remaining: f64 = 0.0;
 
             let mut worker: Option<MonitoringWorker<OpenCvCamera>> =
                 match OpenCvCamera::open(camera_index) {
                     Ok(cam) => {
-                        let _ = app_handle.emit("camera-state-changed", serde_json::json!({ "state": "available" }));
+                        if let Ok(mut s) = shared_state.lock() {
+                            s.status.camera_state = CameraState::Available;
+                        }
                         let engine = PostureTickEngine::default();
-                        Some(MonitoringWorker::new(cam, None, engine, snoozed.clone()))
+                        let detector = load_detector(&app_handle);
+                        Some(MonitoringWorker::new(cam, detector, engine))
                     }
                     Err(_) => {
-                        let _ = app_handle.emit("camera-state-changed", serde_json::json!({ "state": "unavailable" }));
+                        if let Ok(mut s) = shared_state.lock() {
+                            s.status.camera_state = CameraState::Unavailable;
+                        }
                         retry_at = Some(std::time::Instant::now() + Duration::from_secs(5));
                         None
                     }
@@ -241,17 +295,58 @@ pub fn spawn_worker(
             while running_clone.load(Ordering::Relaxed) {
                 let tick_start = std::time::Instant::now();
 
+                // 处理前端命令
+                while let Ok(cmd) = worker_rx.try_recv() {
+                    match cmd {
+                        WorkerCommand::SetCameraIndex(idx) => {
+                            camera_index = idx;
+                            worker = None;
+                            retry_at = Some(tick_start);
+                        }
+                        WorkerCommand::Snooze(seconds) => {
+                            snooze_remaining = seconds;
+                            if let Some(ref mut w) = worker {
+                                w.set_snoozed(true);
+                            }
+                        }
+                        WorkerCommand::Resume => {
+                            snooze_remaining = 0.0;
+                            if let Some(ref mut w) = worker {
+                                w.set_snoozed(false);
+                            }
+                            if let Ok(mut s) = shared_state.lock() {
+                                s.status.snooze_state = snooze::SnoozeState::Inactive;
+                            }
+                        }
+                    }
+                }
+
+                // snooze 倒计时
+                if snooze_remaining > 0.0 && snooze_remaining < f64::INFINITY {
+                    snooze_remaining -= 0.1;
+                    if snooze_remaining <= 0.0 {
+                        snooze_remaining = 0.0;
+                        if let Some(ref mut w) = worker {
+                            w.set_snoozed(false);
+                        }
+                        if let Ok(mut s) = shared_state.lock() {
+                            s.status.snooze_state = snooze::SnoozeState::Inactive;
+                        }
+                    }
+                }
+
                 // 重试摄像头
                 if worker.is_none() && retry_at.is_some_and(|due| tick_start >= due) {
-                    let idx = shared_config
-                        .read()
-                        .map(|c| c.camera_index)
-                        .unwrap_or(0);
-                    match OpenCvCamera::open(idx) {
+                    match OpenCvCamera::open(camera_index) {
                         Ok(cam) => {
-                            let _ = app_handle.emit("camera-state-changed", serde_json::json!({ "state": "available" }));
+                            if let Ok(mut s) = shared_state.lock() {
+                                s.status.camera_state = CameraState::Available;
+                            }
                             let engine = PostureTickEngine::default();
-                            worker = Some(MonitoringWorker::new(cam, None, engine, snoozed.clone()));
+                            let detector = load_detector(&app_handle);
+                            let mut w = MonitoringWorker::new(cam, detector, engine);
+                            w.set_snoozed(snooze_remaining > 0.0);
+                            worker = Some(w);
                         }
                         Err(_) => {
                             retry_at = Some(tick_start + Duration::from_secs(5));
@@ -261,6 +356,28 @@ pub fn spawn_worker(
 
                 if let Some(ref mut w) = worker {
                     let output = w.tick(0.1);
+
+                    // 校准中：喂样本
+                    if let Ok(mut session) = shared_calibration.try_lock() {
+                        if session.is_active() {
+                            if let (Some(y), Some(p)) = (output.yaw, output.pitch) {
+                                session.feed(y, p);
+                            }
+                            session.tick(0.1);
+                        }
+                    }
+
+                    // StatusSnapshot 回写
+                    if let Ok(mut s) = shared_state.lock() {
+                        s.status.pose_state = output.pose_state;
+                        s.status.yaw = output.yaw;
+                        s.status.pitch = output.pitch;
+                        s.status.warning_level = output.warning_level;
+                        if !output.camera_ok {
+                            s.status.camera_state = CameraState::Unavailable;
+                        }
+                    }
+
                     handle_tick_output(&app_handle, &event_log, &output);
                     if !output.camera_ok {
                         worker = None;
@@ -286,6 +403,7 @@ pub fn spawn_worker(
     });
 
     std::mem::forget(running);
+    worker_tx
 }
 
 /// 将单次 tick 输出转化为 Tauri 事件和 JSONL 日志。

@@ -15,6 +15,17 @@ use commands::{
 use domain::calibration::CalibrationSession;
 use tauri::Manager;
 
+/// 设置 ONNX Runtime DLL 的运行时加载路径。
+///
+/// 将 `ORT_LIB_LOCATION` 指向 Tauri 资源目录，
+/// 使 `ort` crate 的 `dlopen2` 能找到 `onnxruntime.dll`。
+#[cfg(feature = "onnx-detector")]
+fn setup_ort_lib_path(app_handle: &tauri::AppHandle) {
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        std::env::set_var("ORT_LIB_LOCATION", &resource_dir);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config = domain::config::ConfigStore::new(dirs::config_dir().unwrap_or_default())
@@ -33,6 +44,8 @@ pub fn run() {
         .manage(shared_config.clone())
         .manage(shared_calibration.clone())
         .setup(move |app| {
+            #[cfg(feature = "onnx-detector")]
+            setup_ort_lib_path(app.handle());
             create_tray(app, &language)?;
             let worker_tx = spawn_worker(
                 app.handle().clone(),
