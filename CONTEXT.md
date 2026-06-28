@@ -1,71 +1,91 @@
 # Eyes
 
-A desktop application that uses a webcam to monitor a user's head pose in real time and prompts them when their posture deviates from facing the screen, or when it's time for a periodic eye-rest break.
+一个桌面应用，用摄像头实时监测用户头部姿态。当用户偏离正对屏幕的方向，或到了该休息眼睛的时候，给出提示。
 
-## Language
+## 术语
 
-**Head Pose**:
-Orientation of the user's head relative to the camera, expressed as two angles: yaw and roll. Pitch is intentionally ignored.
-_Avoid_: posture, head orientation, head angle
+**头部姿态（Head Pose）**：
+用户头部相对于摄像头的朝向，用两个角度表示：偏航和俯仰。分类器不跟踪横滚。
+_避免用_：姿势（posture）、头朝向（head orientation）、头角度（head angle）
 
-**Yaw**:
-Rotation of the head about the vertical axis — turning the head left or right.
-_Avoid_: pan, horizontal rotation
+**偏航（Yaw）**：
+头部绕垂直轴的旋转——向左或向右转头。
+_避免用_：pan、水平旋转
 
-**Roll**:
-Tilt of the head about the forward (camera-facing) axis — tilting the head sideways toward a shoulder.
-_Avoid_: tilt, lean (these are ambiguous)
+**俯仰（Pitch）**：
+头部绕水平轴的倾斜——向上或向下看。正俯仰 = 仰头；负俯仰 = 低头。与偏航独立分类。
+_避免用_：tilt、lean（含义模糊）
 
-**Facing Screen** (正对屏幕):
-The state where the user's **Head Pose** has both `|yaw| ≤ yaw_threshold` and `|roll| ≤ roll_threshold`. Note: this approximates "eyes looking at the screen" using head pose only — true gaze tracking is not in scope.
-_Avoid_: looking at screen, eyes on screen, attentive
+**横滚（Roll）**：
+头部绕面向摄像头的前轴的倾斜——向肩膀方向歪头。当前分类器不跟踪此维度；作为领域术语保留。
+_避免用_：tilt、lean（含义模糊）
 
-**Off-Axis Left** (头偏左):
-**Head Pose** in which yaw indicates the head has turned to the user's own left beyond `yaw_threshold`. Triggers the "向右调整" prompt.
-_Avoid_: turned left, leaning left, looking left
+**正对屏幕（Facing Screen）**：
+用户头部姿态同时满足 `|偏航| ≤ 偏航阈值` 和 `|俯仰| ≤ 俯仰阈值` 的状态。注意：这只是用头部姿态近似"眼睛看屏幕"——真正的视线追踪不在范围内。
+_避免用_：看屏幕、眼睛在屏幕上、专注
 
-**Off-Axis Right** (头偏右):
-**Head Pose** in which yaw indicates the head has turned to the user's own right beyond `yaw_threshold`. Triggers the "向左调整" prompt.
-_Avoid_: turned right, leaning right, looking right
+**头偏左（Off-Axis Left）**：
+头部偏航显示用户向自己的左侧转头超过 `偏航阈值`。触发"向右调整"提示。
+_避免用_：向左转、向左倾、向左看
 
-**Face Detected**:
-At least one face is found in the current camera frame. The signal that drives the **Presence Time Accumulator**, independent of whether the user is **Facing Screen**.
-_Avoid_: user present, user at desk
+**头偏右（Off-Axis Right）**：
+头部偏航显示用户向自己的右侧转头超过 `偏航阈值`。触发"向左调整"提示。
+_避免用_：向右转、向右倾、向右看
 
-**Facing Time Accumulator**:
-Cumulative duration spent in the **Facing Screen** state since the last "良好" prompt. Increments at +1s/s while **Facing Screen**, pauses otherwise. Resets to zero when it reaches 300s and the prompt fires.
-_Avoid_: posture timer, good-posture clock
+**检测到人脸（Face Detected）**：
+当前摄像头画面中找到了至少一张脸。这是驱动**在场时间累加器**的信号，与用户是否**正对屏幕**无关。
+_避免用_：用户在场、用户在桌前
 
-**Presence Time Accumulator**:
-Cumulative duration during which **Face Detected** is true since the last "请眺望远方" prompt. Increments at +1s/s while a face is detected, pauses when no face. Resets to zero when it reaches 900s and the prompt fires. Independent of yaw/roll.
-_Avoid_: eye-rest timer, screen-time clock
+**正对时间累加器（Facing Time Accumulator）**：
+自上次"良好"提示以来，在**正对屏幕**状态下的累计时长。正对屏幕时以 +1 秒/秒递增，否则暂停。达到 300 秒时触发提示并归零。
+_避免用_：姿势计时器、良好姿势时钟
 
-**Neutral Pose**:
-The yaw/roll pair that, for this user on this device, represents the canonical "facing the screen" posture. All deviation comparisons (Off-Axis checks) are computed relative to **Neutral Pose**, not absolute zero. Defaults to (0°, 0°); user can recapture by holding a relaxed forward-looking pose for 5 seconds.
-_Avoid_: zero pose, baseline, calibration point
+**在场时间累加器（Presence Time Accumulator）**：
+自上次"请眺望远方"提示以来，**检测到人脸**为真的累计时长。检测到人脸时以 +1 秒/秒递增，无人脸时暂停。达到 900 秒时触发提示并归零。与偏航/俯仰无关。
+_避免用_：护眼计时器、屏幕时间时钟
 
-**Off-Axis Streak**:
-The continuous duration the user has remained in **Off-Axis Left** or **Off-Axis Right** without returning to **Facing Screen** or **Face Detected** flipping false. Used to debounce corrective prompts: first prompt fires when the streak reaches 5 seconds; while still off-axis, the prompt repeats every 30 seconds. Reset to zero on any return to **Facing Screen** or any **Face Detected** false.
-_Avoid_: deviation duration, off-axis timer
+**中性姿态（Neutral Pose）**：
+对于当前用户、当前设备，代表"正对屏幕"的偏航/俯仰基准值。所有偏离判断（头偏左/右、仰头/低头）都相对于**中性姿态**计算，而非绝对零点。默认 (0°, 0°)；用户可以通过保持自然前视姿势 5 秒来重新采集。
+_避免用_：零点、基线、校准点
 
-## Relationships
+**偏离连续时长（Off-Axis Streak）**：
+用户持续处于**头偏左**或**头偏右**而未回到**正对屏幕**、且**检测到人脸**未变为假的连续时长。用于防抖纠正提示：连续偏离达到 5 秒时触发首次提示；仍在偏离时每 30 秒重复一次。回到**正对屏幕**或**检测到人脸**为假时归零。
+_避免用_：偏离时长、偏离计时器
 
-- A **Head Pose** has exactly one yaw value and one roll value, sampled per video frame.
-- **Facing Screen** is a derived state computed from a single **Head Pose** sample, evaluated relative to **Neutral Pose**.
-- **Off-Axis Left** and **Off-Axis Right** are mutually exclusive; both are negations of **Facing Screen** along the yaw axis.
-- **Facing Time Accumulator** advances only when the current frame's state is **Facing Screen**.
-- **Presence Time Accumulator** advances whenever **Face Detected** is true, regardless of yaw/roll. The two accumulators run in parallel and reset independently.
-- **Off-Axis Streak** advances only while the user is in **Off-Axis Left** or **Off-Axis Right**; resets the moment they exit.
+## 新增术语
 
-## Flagged ambiguities
+**仰头（Head Up）**：
+头部俯仰显示用户向上看超过 `俯仰阈值`。触发"向下看"提示。
+_避免用_：向上看、抬头
 
-- "斜视" in the original spec literally means _eye gaze sideways_, but the project approximates this with head-pose yaw only. Future readers should not assume true gaze tracking exists.
-- "偏左 / 偏右" perspective: defined here from the **user's own** point of view, not the camera's mirror image. The camera sees the opposite — sign convention in code must be explicit.
-- "每 5 分钟提示" / "每 15 分钟提醒" are *cumulative*, not wall-clock — see **Facing Time Accumulator** and **Presence Time Accumulator**. Earlier readings of the spec might assume a wall-clock interpretation; the cumulative reading is canonical.
+**低头（Head Down）**：
+头部俯仰显示用户向下看超过 `俯仰阈值`。触发"向上看"提示。
+_避免用_：向下看、低头
 
-## Example dialogue
+**姿态分类（Pose Classification）**：
+分类器为单帧产生的、按轴独立的状态对：`yaw_state`（`FACING_SCREEN` / `OFF_AXIS_LEFT` / `OFF_AXIS_RIGHT` / `NO_FACE` 之一）和 `pitch_state`（`FACING_SCREEN` / `HEAD_UP` / `HEAD_DOWN` / `NO_FACE` 之一）。两个轴可以同时偏离。
+_避免用_：姿态状态、单一状态
 
-> **Dev:** "If the user turns their head to their own left, what does the app show?"
-> **Product:** "It says '请向右调整' — it's telling them to rotate back toward the screen."
-> **Dev:** "And if they tilt their head sideways onto a shoulder without turning?"
-> **Product:** "That's high **Roll**, low yaw — still not **Facing Screen**, so the user just doesn't get the periodic '良好' praise. There's no dedicated corrective prompt for roll-only deviation."
+## 关系
+
+- **头部姿态**每帧采样一次，恰好有一个偏航值和一个俯仰值。不跟踪横滚。
+- **正对屏幕**是从单个**头部姿态**样本推导出的状态，相对于**中性姿态**判断。
+- **头偏左**和**头偏右**在偏航轴上互斥。
+- **仰头**和**低头**在俯仰轴上互斥。
+- 偏航状态和俯仰状态独立：同一帧可以同时是**头偏右**和**仰头**。
+- **正对时间累加器**仅在当前帧的推导状态为**正对屏幕**时推进。
+- **在场时间累加器**在**检测到人脸**为真时推进，与偏航/俯仰无关。两个累加器并行运行、独立归零。
+- **偏离连续时长**仅在用户处于**头偏左**或**头偏右**时推进；偏航状态回到**正对屏幕**或**检测到人脸**变为假时立即归零。
+
+## 已标记的歧义
+
+- 原始规格中的"斜视"字面意思是视线偏移，但本项目只用头部偏航近似。读者不应假设存在真正的视线追踪。
+- "偏左/偏右"的视角定义为**用户自己的**左右，不是摄像头的镜像。摄像头看到的是相反方向——代码里的符号约定必须明确。
+- "每 5 分钟提示"/"每 15 分钟提醒"是**累计**时长，不是挂钟时间——参见**正对时间累加器**和**在场时间累加器**。早期对规格的阅读可能假设挂钟解读；累计解读是本项目的标准。
+
+## 示例对话
+
+> **开发：** "如果用户向自己的左边转头，应用显示什么？"
+> **产品：** "显示'请向右调整'——告诉用户转回屏幕方向。"
+> **开发：** "如果用户向肩膀方向歪头但没有转呢？"
+> **产品：** "那是高横滚、低偏航——仍然不是**正对屏幕**，所以用户不会收到周期性的'良好'提示。对纯横滚偏离没有专门的纠正提示。"

@@ -1,13 +1,13 @@
-# Detect yaw and roll only; ignore pitch and eye gaze
+# 0001 — 只检测偏航和横滚，忽略俯仰和视线
 
-The product spec mentions both 歪头 (head tilt = roll) and 斜视 (eye gaze sideways). To keep the detector simple and robust, "Facing Screen" is operationalized as `|yaw| ≤ yaw_threshold AND |roll| ≤ roll_threshold` only. Pitch is ignored entirely — looking down at the keyboard or a notebook should not trigger an alarm. Eye-gaze tracking is out of scope; head-pose yaw is used as a coarse proxy for "looking at the screen".
+产品规格同时提到"歪头"（头部倾斜 = 横滚）和"斜视"（视线偏移）。为了保持检测器简单可靠，"正对屏幕"仅定义为 `|偏航| ≤ 偏航阈值 且 |横滚| ≤ 横滚阈值`。俯仰完全被忽略——低头看键盘或笔记本不应触发警报。视线追踪不在范围内；用头部偏航粗略代理"看屏幕"。
 
-## Considered Options
+## 考虑过的选项
 
-- **yaw + pitch + roll** — rejected: pitch alarms misfire on legitimate looking-down (keyboard, paper, phone briefly); finding a non-annoying pitch threshold is hard.
-- **head pose + iris-based gaze estimation** — rejected: significantly more complex, sensitive to glasses/lighting/individual eye geometry, and not justified for v1 by the spec.
+- **偏航 + 俯仰 + 横滚** — 否决：俯仰警报在合理低头时（键盘、纸张、短暂看手机）会误报；很难找到一个不烦人的俯仰阈值。
+- **头部姿态 + 虹膜视线估计** — 否决：复杂度显著增加，对眼镜、光线、个体眼几何敏感，v1 规格不足以证明其合理性。
 
-## Consequences
+## 后果
 
-- The detector cannot tell apart "head facing screen with eyes wandering" from "head facing screen with eyes engaged" — both are reported as **Facing Screen**.
-- Pure-roll deviation ("head tilted onto a shoulder") suppresses the periodic "良好" praise but does not produce a corrective prompt of its own.
+- 检测器无法区分"头正对屏幕但眼睛走神"和"头正对屏幕且眼睛专注"——两者都报告为**正对屏幕**。
+- 纯横滚偏离（"头歪向肩膀"）会抑制周期性的"良好"提示，但不会产生专门的纠正提示。

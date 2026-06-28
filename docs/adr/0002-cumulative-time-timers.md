@@ -1,14 +1,14 @@
-# Periodic prompts trigger on cumulative time, not wall-clock
+# 0002 — 周期提示基于累计时长，而非挂钟时间
 
-The user-facing spec says "每 5 分钟" and "每 15 分钟", but the canonical reading in this project is **cumulative time in the relevant state**, not wall-clock time since startup. The 5-minute "良好" prompt fires once the **Facing Time Accumulator** reaches 300s of accumulated **Facing Screen** time. The 15-minute "请眺望远方" prompt fires once the **Presence Time Accumulator** reaches 900s of accumulated **Face Detected** time. Both accumulators pause when their gating signal is false and reset to zero on each fire.
+用户规格写了"每 5 分钟"和"每 15 分钟"，但本项目的标准解读是**在相关状态下的累计时长**，不是应用启动后的挂钟时间。5 分钟的"良好"提示在**正对时间累加器**累计到 300 秒**正对屏幕**时间时触发。15 分钟的"请眺望远方"提示在**在场时间累加器**累计到 900 秒**检测到人脸**时间时触发。两个累加器在门控信号为假时暂停，每次触发后归零。
 
-## Considered Options
+## 考虑过的选项
 
-- **Wall-clock tick (every N minutes since app start)** — rejected: feels arbitrary; users who just sat down would have to wait until the next tick to be acknowledged, and the eye-rest reminder would fire while the user was away from the desk.
-- **Continuous-streak (must be uninterrupted)** — rejected: too strict; brief deviations (water sip, glance at phone) reset the streak and the user effectively never qualifies.
+- **挂钟 tick（每 N 分钟自应用启动）** — 否决：感觉随意；刚坐下的用户要等到下一个 tick 才被认可，护眼提醒会在用户离开桌前时触发。
+- **连续不间断（必须无中断）** — 否决：过于严格；短暂偏离（喝水、看一眼手机）会重置连续时长，用户实际上永远达不到条件。
 
-## Consequences
+## 后果
 
-- The 5-minute prompt rewards proportional facing-screen time, even with short interruptions.
-- The 15-minute eye-rest counts time the user is at the screen *in any pose*, including off-axis — strain accumulates whether or not the head is perfectly aligned.
-- The two accumulators run on different signals and reset independently — they will not align in time, which is intentional.
+- 5 分钟提示奖励与正对屏幕时间成正比，即使有短暂中断。
+- 15 分钟护眼计算的是用户在屏幕前的时间（**任何姿态**，包括偏轴）——无论头部是否完美对齐，疲劳都在累积。
+- 两个累加器运行在不同信号上、独立归零——它们不会在时间上对齐，这是有意设计。

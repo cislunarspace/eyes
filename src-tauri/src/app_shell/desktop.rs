@@ -35,9 +35,9 @@ pub fn handle_window_event<R: Runtime>(window: &tauri::Window<R>, event: &Window
 }
 
 pub fn create_tray(app: &App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, MENU_SHOW_ID, "Show", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, MENU_SETTINGS_ID, "Settings", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, MENU_QUIT_ID, "Quit", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, MENU_SHOW_ID, "显示", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, MENU_SETTINGS_ID, "设置", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, MENU_QUIT_ID, "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &settings, &quit])?;
 
     let icon = app

@@ -14,7 +14,7 @@ impl OpenCvCamera {
         let capture = videoio::VideoCapture::new(index, videoio::CAP_ANY)
             .map_err(|error| error.to_string())?;
         if !capture.is_opened().map_err(|error| error.to_string())? {
-            return Err(format!("camera index {index} is unavailable"));
+            return Err(format!("摄像头 {index} 不可用"));
         }
         Ok(Self { capture })
     }
@@ -41,11 +41,11 @@ impl FrameSource for OpenCvCamera {
             .map_err(|error| error.to_string())?
             .to_vec();
         let width =
-            u32::try_from(size.width).map_err(|_| "invalid camera frame width".to_string())?;
+            u32::try_from(size.width).map_err(|_| "摄像头帧宽度无效".to_string())?;
         let height =
-            u32::try_from(size.height).map_err(|_| "invalid camera frame height".to_string())?;
+            u32::try_from(size.height).map_err(|_| "摄像头帧高度无效".to_string())?;
         Frame::rgb(width, height, bytes)
             .map(Some)
-            .map_err(|error| format!("invalid camera frame: {error:?}"))
+            .map_err(|error| format!("摄像头帧无效: {error:?}"))
     }
 }

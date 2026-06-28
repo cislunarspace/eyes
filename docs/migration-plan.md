@@ -1,36 +1,36 @@
-# Rust rewrite migration plan
+# Rust 重写迁移计划
 
-This plan is the execution layer for [ADR 0005](adr/0005-rust-rewrite-direction.md). It splits the full Rust/Tauri rewrite into eight runnable milestones with explicit acceptance checklists. Python source stays in the repo until M8.
+本计划是 [ADR 0005](adr/0005-rust-rewrite-direction.md) 的执行层。它将完整的 Rust/Tauri 重写拆分为八个可独立运行的里程碑（Milestone），每个里程碑附带明确的验收清单。Python 源码保留至 M8 再删除。
 
-## Architecture summary
+## 架构总览
 
 ```text
 src-tauri/src/
-├── main.rs                  # Tauri builder, plugin wiring, single-instance + autostart
-├── app_state.rs             # Shared state, command/event channels, latest snapshot
-├── commands.rs              # Tauri commands (UI -> backend)
-├── events.rs                # WorkerEvent -> Tauri emit translation
-├── config.rs                # Atomic YAML load/save, serde defaults
-├── log.rs                   # JSONL event log (separate from tracing)
-├── i18n_keys.rs             # Stable backend message keys
+├── main.rs                  # Tauri builder、插件接线、单实例 + 开机自启
+├── app_state.rs             # 共享状态、命令/事件通道、最新快照
+├── commands.rs              # Tauri 命令（UI -> 后端）
+├── events.rs                # WorkerEvent -> Tauri emit 转译
+├── config.rs                # 原子化 YAML 读写、serde 默认值
+├── log.rs                   # JSONL 事件日志（与 tracing 分开）
+├── i18n_keys.rs             # 稳定的后端消息键
 ├── monitoring/
 │   ├── mod.rs
-│   ├── worker.rs            # WorkerCommand/Event loop, owns Camera + Detector + Engine
-│   ├── camera.rs            # OpenCV capture, retry, BGR frame
-│   ├── detector.rs          # Detector trait + OnnxDetector impl
-│   ├── pose.rs              # solvePnP + sign convention helpers
-│   └── preview.rs           # Downscale + JPEG encode for UI preview
+│   ├── worker.rs            # WorkerCommand/Event 循环，持有 Camera + Detector + Engine
+│   ├── camera.rs            # OpenCV 采集、重试、BGR 帧
+│   ├── detector.rs          # Detector trait + OnnxDetector 实现
+│   ├── pose.rs              # solvePnP + 正负号约定辅助函数
+│   └── preview.rs           # 降采样 + JPEG 编码，用于 UI 预览
 ├── domain/
 │   ├── mod.rs
-│   ├── classifier.rs        # NeutralPose, Thresholds, classify()
+│   ├── classifier.rs        # NeutralPose、Thresholds、classify()
 │   ├── posture_tick_engine.rs
-│   ├── snooze.rs            # evaluate_snooze + state machine
-│   ├── calibration.rs       # CalibrationSession, compute_median_pose
-│   └── display_plan.rs      # Pure UI projection used by the renderer
+│   ├── snooze.rs            # evaluate_snooze + 状态机
+│   ├── calibration.rs       # CalibrationSession、compute_median_pose
+│   └── display_plan.rs      # 纯 UI 投影，供渲染器使用
 └── platform/
     ├── mod.rs
-    ├── autostart_windows.rs # Wrapper over tauri-plugin-autostart
-    └── tray.rs              # Tray menu, language refresh, snooze items
+    ├── autostart_windows.rs # tauri-plugin-autostart 包装
+    └── tray.rs              # 托盘菜单、语言刷新、暂停提醒项
 
 frontend/                    # React + TS + Vite
 ├── src/
@@ -41,18 +41,18 @@ frontend/                    # React + TS + Vite
 │   │   └── Settings.tsx
 │   ├── windows/
 │   │   └── Reminder.tsx
-│   ├── ipc/                 # invoke wrappers + event listeners
+│   ├── ipc/                 # invoke 包装 + 事件监听
 │   └── i18n/
 │       ├── zh-CN.ts
 │       └── en-US.ts
 └── index.html
 
-models/                      # ONNX models bundled into installer
-docs/                        # ADRs + this plan
-src/, tests/, main.py, ...   # Legacy Python (deleted in M8)
+models/                      # ONNX 模型，打包进安装程序
+docs/                        # ADR + 本计划
+src/, tests/, main.py, ...   # 旧版 Python（M8 时删除）
 ```
 
-## Tauri commands (UI -> backend)
+## Tauri 命令（UI -> 后端）
 
 ```ts
 get_status()                            -> Status
@@ -61,16 +61,16 @@ update_config(patch: PartialConfig)     -> AppConfig
 set_camera_index(index: number)         -> void
 start_calibration()                     -> void
 cancel_calibration()                    -> void
-pause_snooze(duration_seconds?: number) -> void   // null/undefined = indefinite
+pause_snooze(duration_seconds?: number) -> void   // null/undefined = 无限期
 resume_snooze()                         -> void
 set_language(lang: "zh-CN" | "en-US")   -> void
 set_autostart(enabled: boolean)         -> void
 quit_app()                              -> void
 ```
 
-Commands are idempotent. Errors are returned as `Result<T, AppError>` where `AppError` is a closed Rust enum that does not leak internal details to the frontend.
+所有命令都是幂等的。错误以 `Result<T, AppError>` 返回，其中 `AppError` 是一个封闭的 Rust 枚举（Enum），不会向前端泄露内部细节。
 
-## Backend events (backend -> UI)
+## 后端事件（后端 -> UI）
 
 ```ts
 "status-updated"          Status
@@ -82,13 +82,13 @@ Commands are idempotent. Errors are returned as `Result<T, AppError>` where `App
 "snooze-updated"          { state: "inactive"|"active"|"indefinite", until_iso? }
 ```
 
-Heavy preview frames travel on their own event so they never bloat `status-updated`.
+预览帧数据量大，走独立事件通道，不会拖慢 `status-updated`。
 
-## Worker contract (internal Rust)
+## Worker 协议（Rust 内部）
 
 ```rust
 enum WorkerCommand {
-    Tick,                                          // injected by 10 Hz timer or tests
+    Tick,                                          // 由 10 Hz 定时器或测试注入
     UpdateConfig(AppConfig),
     SetCameraIndex(u32),
     StartCalibration { duration_seconds: f64 },
@@ -111,122 +111,122 @@ enum WorkerEvent {
 }
 ```
 
-The worker uses no Tauri types directly. `events.rs` adapts `WorkerEvent` into Tauri `emit_all`/`emit` calls so the worker stays unit-testable with a fake camera and fake detector.
+Worker 不直接依赖任何 Tauri 类型。`events.rs` 负责把 `WorkerEvent` 转译为 Tauri 的 `emit_all`/`emit` 调用，这样 Worker 可以用假的摄像头和检测器独立做单元测试。
 
-## Milestones and acceptance
+## 里程碑与验收
 
-### M1 — Tauri skeleton
+### M1 — Tauri 骨架
 
-- [ ] `cargo tauri dev` opens an empty React main window on Windows.
-- [ ] Tray icon shown.
-- [ ] Closing the main window hides it; the process keeps running.
-- [ ] Tray menu shows Show / Settings (placeholder) / Quit.
-- [ ] Quit truly exits.
-- [ ] `tauri-plugin-single-instance` enabled — second launch focuses the existing window.
+- [ ] `cargo tauri dev` 能在 Windows 上打开一个空白的 React 主窗口。
+- [ ] 托盘图标显示正常。
+- [ ] 关闭主窗口后窗口隐藏，进程继续运行。
+- [ ] 托盘菜单显示 Show / Settings（占位） / Quit。
+- [ ] Quit 能真正退出程序。
+- [ ] `tauri-plugin-single-instance` 启用——第二次启动时聚焦已有窗口。
 
-### M2 — Rust domain core + ported tests
+### M2 — Rust 领域核心 + 移植测试
 
-- [ ] `domain::classifier` Rust unit tests cover the cases in `tests/test_classifier.py`.
-- [ ] `domain::posture_tick_engine` mirrors `tests/test_posture_tick_engine.py`.
-- [ ] `domain::snooze::evaluate_snooze` mirrors `tests/test_snooze_evaluation.py`, including malformed/indefinite/expired/active.
-- [ ] `domain::calibration` mirrors `tests/test_calibration.py` (median pose plus session lifecycle).
-- [ ] `domain::display_plan` mirrors `tests/test_display_plan.py`.
-- [ ] `config::ConfigStore` reads and writes `~/.config/eyes/config.yaml` (or platform equivalent), uses serde defaults for missing fields, writes atomically (temp + rename).
-- [ ] `cargo test` is green on Linux and Windows.
+- [ ] `domain::classifier` 的 Rust 单元测试覆盖 `tests/test_classifier.py` 中的所有用例。
+- [ ] `domain::posture_tick_engine` 与 `tests/test_posture_tick_engine.py` 对齐。
+- [ ] `domain::snooze::evaluate_snooze` 与 `tests/test_snooze_evaluation.py` 对齐，包括畸形/无限期/过期/活跃等场景。
+- [ ] `domain::calibration` 与 `tests/test_calibration.py` 对齐（中位数位姿 + 会话生命周期）。
+- [ ] `domain::display_plan` 与 `tests/test_display_plan.py` 对齐。
+- [ ] `config::ConfigStore` 能读写 `~/.config/eyes/config.yaml`（或平台对应路径），缺失字段使用 serde 默认值，写入采用原子方式（临时文件 + 重命名）。
+- [ ] `cargo test` 在 Linux 和 Windows 上全部通过。
 
-### M3 — Camera preview
+### M3 — 摄像头预览
 
-- [ ] Worker opens camera index 0 via OpenCV Rust crate.
-- [ ] Main window displays a low-FPS preview through the `preview-frame` event.
-- [ ] Disconnecting the camera emits `camera-state-changed: unavailable`; UI shows the unavailable banner.
-- [ ] 5-second retry restores the preview without restarting the app.
-- [ ] Missing camera at startup does not crash the app.
-- [ ] Closing the main window keeps the worker ticking; reopening continues to receive frames.
+- [ ] Worker 通过 OpenCV Rust crate 打开摄像头 index 0。
+- [ ] 主窗口通过 `preview-frame` 事件显示低帧率预览画面。
+- [ ] 断开摄像头时发出 `camera-state-changed: unavailable`；UI 显示不可用提示。
+- [ ] 5 秒重试后能恢复预览，无需重启应用。
+- [ ] 启动时没有摄像头不会导致应用崩溃。
+- [ ] 关闭主窗口后 Worker 继续运行；重新打开后能继续接收画面帧。
 
-### M4 — ONNX detector spike
+### M4 — ONNX 检测器验证
 
-- [ ] `monitoring::detector::Detector` trait defined; `OnnxDetector` is the first implementation.
-- [ ] Selected face detector + landmark/head-pose model recorded in `docs/adr/0006-onnx-detector-choice.md` with license, size, and CPU latency.
-- [ ] Model files included via `tauri.conf.json` `bundle.resources`; runtime resolves them through `app_handle.path()`.
-- [ ] Detector returns `Option<HeadPose { yaw, roll }>`; missing face returns `None`.
-- [ ] Yaw sign convention matches the README contract (positive = head turned to user's own right).
-- [ ] Single-frame CPU inference on a Windows desktop class machine < 60 ms.
-- [ ] Detector + landmark assets together < 30 MB.
-- [ ] Five manual poses (forward, left turn, right turn, look up, look down) produce the correct sign direction post-calibration.
-- [ ] 1-minute continuous inference is stable (no panic, no obvious leak).
-- [ ] Spike is time-boxed at 2 working days. If no candidate passes, fall back to OpenCV YuNet plus a simpler geometric estimate so M5 is not blocked.
+- [ ] 定义 `monitoring::detector::Detector` trait；`OnnxDetector` 为首个实现。
+- [ ] 选定的人脸检测器 + 关键点头部姿态模型记录在 `docs/adr/0006-onnx-detector-choice.md`，包含许可证、体积和 CPU 延迟。
+- [ ] 模型文件通过 `tauri.conf.json` 的 `bundle.resources` 打包；运行时通过 `app_handle.path()` 定位。
+- [ ] 检测器返回 `Option<HeadPose { yaw, roll }>`；未检测到人脸时返回 `None`。
+- [ ] Yaw 正负号约定与 README 定义一致（正值 = 头转向用户自己的右侧）。
+- [ ] Windows 台式机上单帧 CPU 推理耗时 < 60 ms。
+- [ ] 检测器 + 关键点资源合计 < 30 MB。
+- [ ] 校准后，五种手动姿态（正前方、左转、右转、上看、下看）产生正确的正负方向。
+- [ ] 1 分钟连续推理保持稳定（无 panic，无明显泄漏）。
+- [ ] 此验证限时 2 个工作日。若无候选方案通过，回退到 OpenCV YuNet 加简单几何估算，确保 M5 不被阻塞。
 
-### M5 — Monitoring closure
+### M5 — 监测闭环
 
-- [ ] Worker integrates Detector → Classifier → PostureTickEngine → events.
-- [ ] Main window readout shows live yaw / roll / pose state.
-- [ ] All `WarningLevel` transitions (NORMAL → WARNING → SEVERE → CORRECTED → NORMAL) are reproducible by hand on the local machine.
-- [ ] `prompt-fired` drives the Tauri reminder window for correction / good_posture / eye_rest / corrected.
-- [ ] Reminder window is always-on-top and auto-dismisses.
-- [ ] Snooze 30 min, 1 hour, indefinite all silence reminders correctly; tray and UI state reflect snooze status.
-- [ ] Resume re-enables reminders.
-- [ ] App restart correctly recovers snooze state for active / expired / indefinite / malformed cases (matches `evaluate_snooze` outcomes).
-- [ ] JSONL log captures STATE_CHANGE / PROMPT_FIRED / WARNING_LEVEL_CHANGED / CAMERA_UNAVAILABLE / CAMERA_RESUMED / SNOOZE_START / SNOOZE_END.
+- [ ] Worker 集成 Detector → Classifier → PostureTickEngine → 事件。
+- [ ] 主窗口实时显示 yaw / roll / 姿态状态。
+- [ ] 所有 `WarningLevel` 转换（NORMAL → WARNING → SEVERE → CORRECTED → NORMAL）可在本机手动复现。
+- [ ] `prompt-fired` 驱动 Tauri 提醒窗口，用于纠正 / 好姿态 / 护眼 / 已纠正。
+- [ ] 提醒窗口始终保持置顶，并能自动消失。
+- [ ] 暂停 30 分钟、1 小时、无限期均能正确静音提醒；托盘和 UI 状态反映暂停状态。
+- [ ] 恢复后重新启用提醒。
+- [ ] 应用重启后能正确恢复暂停状态，覆盖活跃/过期/无限期/畸形四种场景（与 `evaluate_snooze` 结果一致）。
+- [ ] JSONL 日志捕获 STATE_CHANGE / PROMPT_FIRED / WARNING_LEVEL_CHANGED / CAMERA_UNAVAILABLE / CAMERA_RESUMED / SNOOZE_START / SNOOZE_END。
 
-### M6 — Settings + Calibration UI + Windows autostart
+### M6 — 设置 + 校准 UI + Windows 开机自启
 
-- [ ] Settings page edits yaw threshold, roll threshold, camera index, language, sound_enabled, autostart_enabled.
-- [ ] Advanced timing fields (`off_axis_streak_threshold_seconds`, `off_axis_repeat_interval_seconds`, `facing_threshold_seconds`, `eyest_threshold_seconds`) round-trip through YAML.
-- [ ] Saving sends `update_config`; worker applies new thresholds and classifier neutral immediately.
-- [ ] Changing camera index reopens the camera and the retry path stays correct.
-- [ ] Switching language refreshes main window, reminder window, and tray menu text.
-- [ ] Calibration button starts a 5-second session; UI shows remaining seconds and sample count.
-- [ ] Reminders are silenced during calibration. Completed calibration writes `neutral_yaw` / `neutral_roll` and the engine adopts the new neutral immediately.
-- [ ] No-face for the entire window emits `CalibrationFailed(NoFace)` and leaves config unchanged.
-- [ ] Cancel calibration aborts cleanly.
-- [ ] `tauri-plugin-autostart` toggles Windows user-level autostart; relaunch on next login is verified by hand.
-- [ ] `sound_enabled` persists and is reflected in the UI; playback can remain unimplemented.
+- [ ] 设置页面可编辑 yaw 阈值、roll 阈值、摄像头编号、语言、sound_enabled、autostart_enabled。
+- [ ] 高级时间字段（`off_axis_streak_threshold_seconds`、`off_axis_repeat_interval_seconds`、`facing_threshold_seconds`、`eyest_threshold_seconds`）能通过 YAML 正确读写。
+- [ ] 保存时发送 `update_config`；Worker 立即应用新阈值和新的中性位姿。
+- [ ] 更换摄像头编号后重新打开摄像头，重试路径保持正确。
+- [ ] 切换语言后主窗口、提醒窗口、托盘菜单文字同步刷新。
+- [ ] 校准按钮启动 5 秒校准会话；UI 显示剩余秒数和采样数。
+- [ ] 校准期间提醒静音。校准完成后写入 `neutral_yaw` / `neutral_roll`，引擎立即采用新的中性位姿。
+- [ ] 整个校准窗口期间都检测不到人脸时发出 `CalibrationFailed(NoFace)`，配置不变。
+- [ ] 取消校准能干净地中止。
+- [ ] `tauri-plugin-autostart` 切换 Windows 用户级开机自启；下次登录时自动启动需手动验证。
+- [ ] `sound_enabled` 持久化并在 UI 中反映；音频播放功能可以暂不实现。
 
-### M7 — Windows packaging
+### M7 — Windows 打包
 
-- [ ] `cargo tauri build` produces an installable MSI (NSIS acceptable as fallback).
-- [ ] Installed app launches from the Start menu.
-- [ ] OpenCV (`opencv_world*.dll`) and ONNX Runtime (`onnxruntime.dll`) ship inside the installer; no “DLL not found” errors on a clean machine.
-- [ ] ONNX model files ship inside the installer and are located via `app_handle.path()`.
-- [ ] Configuration and logs are written to `%APPDATA%\eyes\`, never to the install directory.
-- [ ] Uninstall removes app files; user config is preserved (documented in README).
-- [ ] Installer size recorded in README as a baseline for future optimisation.
-- [ ] Verified on at least one clean Windows machine or VM.
-- [ ] `models/MANIFEST.toml` lists model filenames, sha256, source URL, and license; startup logs the active model version.
+- [ ] `cargo tauri build` 生成可安装的 MSI（NSIS 作为备选方案也可接受）。
+- [ ] 安装后从开始菜单启动正常。
+- [ ] OpenCV（`opencv_world*.dll`）和 ONNX Runtime（`onnxruntime.dll`）包含在安装程序中；在干净机器上不会出现"找不到 DLL"错误。
+- [ ] ONNX 模型文件包含在安装程序中，通过 `app_handle.path()` 定位。
+- [ ] 配置和日志写入 `%APPDATA%\eyes\`，不写入安装目录。
+- [ ] 卸载时删除应用文件；用户配置保留（在 README 中说明）。
+- [ ] 安装包体积记录在 README 中，作为后续优化的基准。
+- [ ] 至少在一台干净的 Windows 机器或虚拟机上验证通过。
+- [ ] `models/MANIFEST.toml` 列出模型文件名、sha256、来源 URL 和许可证；启动时记录当前使用的模型版本。
 
-### M8 — Legacy cleanup
+### M8 — 旧代码清理
 
-- [ ] Rust app passes M1 through M7.
-- [ ] Remove `src/`, `tests/`, `main.py`, `eyes.spec`, `eyes-linux.spec`, `pyproject.toml`, `uv.lock`, `.venv/`, `scripts/build*.py`.
-- [ ] Remove `.github/workflows/linux-build.yml` (Python pipeline).
-- [ ] Rewrite `README.md` and `README_zh.md` for the Rust/Tauri version; archive the old README at `docs/legacy/README-pyside.md` if useful.
-- [ ] Migration commit makes it easy to find the cutover point.
-- [ ] Repository root contains only Rust, Tauri, frontend, models, docs.
+- [ ] Rust 应用通过 M1 到 M7 的全部验收。
+- [ ] 删除 `src/`、`tests/`、`main.py`、`eyes.spec`、`eyes-linux.spec`、`pyproject.toml`、`uv.lock`、`.venv/`、`scripts/build*.py`。
+- [ ] 删除 `.github/workflows/linux-build.yml`（Python 流水线）。
+- [ ] 为 Rust/Tauri 版本重写 `README.md` 和 `README_zh.md`；如有参考价值，将旧 README 存档到 `docs/legacy/README-pyside.md`。
+- [ ] 迁移提交使切换点易于定位。
+- [ ] 仓库根目录只剩 Rust、Tauri、前端、模型、文档。
 
-## Continuous integration
+## 持续集成
 
-| Pipeline | Trigger | Runner | Purpose |
+| 流水线 | 触发方式 | 运行环境 | 用途 |
 | --- | --- | --- | --- |
-| `linux-build.yml` (existing) | push, PR | ubuntu-latest | Legacy Python build/tests; untouched until M8 |
-| `rust-test.yml` (new) | push, PR | ubuntu-latest + windows-latest | `cargo fmt --check`, `cargo clippy`, `cargo test`. Linux job covers `domain/*` only and must not depend on OpenCV/ONNX. Windows job covers full crate. |
-| `tauri-build.yml` (new) | manual + tag | windows-latest | `cargo tauri build`, uploads MSI artifact for manual smoke tests. Not required to be green for PRs that don't touch packaging. |
+| `linux-build.yml`（已有） | push、PR | ubuntu-latest | 旧版 Python 构建/测试；M8 前不动 |
+| `rust-test.yml`（新建） | push、PR | ubuntu-latest + windows-latest | `cargo fmt --check`、`cargo clippy`、`cargo test`。Linux 任务仅覆盖 `domain/*`，不依赖 OpenCV/ONNX。Windows 任务覆盖整个 crate。 |
+| `tauri-build.yml`（新建） | 手动 + tag | windows-latest | `cargo tauri build`，上传 MSI 产物供手动冒烟测试。不涉及打包的 PR 无需此流水线通过。 |
 
-Domain tests are designed to run without OpenCV or ONNX so they stay fast and portable. Camera/detector code uses a `Detector` trait so the integration layer can be tested with a fake detector when needed.
+领域测试设计为不依赖 OpenCV 或 ONNX 即可运行，保持快速和可移植。摄像头/检测器代码通过 `Detector` trait 抽象，集成层可在需要时用假检测器测试。
 
-## Plugin choices
+## 插件选型
 
-- `tauri-plugin-autostart` — Windows user-level autostart.
-- `tauri-plugin-single-instance` — required; prevents autostart + manual launch from spawning two camera workers.
-- `tauri` core — tray, windows, IPC, bundling.
-- `tauri-plugin-log` or `tracing` + `tracing-subscriber` — backend diagnostic log (separate from the JSONL business log).
+- `tauri-plugin-autostart` — Windows 用户级开机自启。
+- `tauri-plugin-single-instance` — 必须启用；防止自启 + 手动启动时产生两个摄像头 Worker。
+- `tauri` 核心 — 托盘、窗口、IPC、打包。
+- `tauri-plugin-log` 或 `tracing` + `tracing-subscriber` — 后端诊断日志（与 JSONL 业务日志分开）。
 
-## Migration oracle
+## 迁移基准
 
-The Python suite under `tests/` is the migration oracle for behavior. For each domain module ported in M2 the corresponding Rust test must cover at least the same scenarios. Behavioral drift is treated as a Rust bug.
+`tests/` 下的 Python 测试套件是行为正确性的迁移基准（Migration Oracle）。M2 中移植的每个领域模块，对应的 Rust 测试至少要覆盖相同的场景。行为偏差视为 Rust 端的 bug。
 
-For the camera/detector layers, integration tests use:
+摄像头/检测器层的集成测试使用：
 
-- A fake camera that yields recorded BGR frames.
-- A fake detector that returns scripted `HeadPose` sequences.
+- 假摄像头：返回录制好的 BGR 帧。
+- 假检测器：按脚本返回 `HeadPose` 序列。
 
-This keeps `cargo test` green without needing OpenCV/ONNX in CI runners.
+这样 `cargo test` 在 CI 运行器上无需安装 OpenCV/ONNX 也能通过。

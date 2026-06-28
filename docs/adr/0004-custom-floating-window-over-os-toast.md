@@ -1,15 +1,15 @@
-# Custom always-on-top floating window instead of native OS toasts
+# 0004 — 自定义置顶浮动窗口，不用系统通知
 
-User-visible prompts ("当前姿势良好", "请眺望远方", "请向左/右调整") are rendered by a frameless, transparent, always-on-top Qt widget that the app draws and animates itself. The window appears on demand at the bottom-center of the primary screen (24px above the taskbar), lingers for a few seconds, then dismisses itself. Native OS toast notifications (Windows Toast / Linux libnotify) were rejected as the primary mechanism.
+用户可见的提示（"当前姿势良好"、"请眺望远方"、"请向左/右调整"）由应用自行绘制和动画的无边框、透明、置顶 Qt 控件渲染。窗口在主屏幕底部中央按需出现（任务栏上方 24px），停留几秒后自动消失。原生系统通知（Windows Toast / Linux libnotify）作为主要机制被否决。
 
-## Considered Options
+## 考虑过的选项
 
-- **Native OS toasts via `desktop-notifier`** — rejected as primary: limited control over content (cannot draw a head-pose mini-preview), inconsistent dismissal behavior across Windows 10 / 11 / different Linux DEs, and Linux DEs (GNOME especially) sometimes route notifications into a tray history the user doesn't see.
-- **In-window banner only** — rejected: invisible when the main window is minimized to tray, which is the expected operating mode.
-- **Modal popup** — rejected: interrupts focus and clearly fails the productized polish bar.
+- **通过 `desktop-notifier` 使用系统通知** — 否决作为主要方案：对内容控制有限（无法绘制头部姿态小预览），Windows 10/11 和不同 Linux 桌面环境的消失行为不一致，Linux 桌面环境（尤其 GNOME）有时把通知路由到用户看不到的托盘历史里。
+- **仅在主窗口内显示横幅** — 否决：主窗口最小化到托盘时不可见，而最小化到托盘是预期的运行模式。
+- **模态弹窗** — 否决：打断焦点，明显达不到产品化的体验标准。
 
-## Consequences
+## 后果
 
-- Cross-platform always-on-top behavior must be handled deliberately: Windows + X11 are straightforward, Wayland needs a layer-shell or platform-specific workaround.
-- High-DPI scaling, multi-monitor active-screen detection, and click-through behavior all become our problem.
-- The custom widget is also where we can render extra context (a tiny head-pose indicator, a "snooze" link, a count-down to auto-dismiss) — the upside that justifies the complexity.
+- 跨平台置顶行为需要专门处理：Windows + X11 直接可行，Wayland 需要 layer-shell 或平台特定的变通方案。
+- 高 DPI 缩放、多显示器活动屏幕检测、点击穿透行为都成了我们要解决的问题。
+- 自定义控件也是我们可以渲染额外上下文的地方（小的头部姿态指示器、"暂停"链接、自动消失倒计时）——这是证明复杂度合理的上行空间。

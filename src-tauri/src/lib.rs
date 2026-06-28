@@ -35,5 +35,5 @@ pub fn run() {
             // ponytail: M5/M6 接线后继续添加更多命令
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Eyes");
+        .expect("运行 Eyes 时出错");
 }
