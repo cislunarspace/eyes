@@ -25,6 +25,23 @@ impl Frame {
         }
         Ok(Self { width, height, rgb })
     }
+
+    /// 返回水平翻转的新帧，不修改原帧。
+    pub fn mirror_horizontal(&self) -> Self {
+        let row_bytes = self.width as usize * 3;
+        let mut flipped = Vec::with_capacity(self.rgb.len());
+        for row in self.rgb.chunks_exact(row_bytes) {
+            // 逐像素反转：每 3 字节一个 RGB 像素
+            for pixel in row.rchunks_exact(3) {
+                flipped.extend_from_slice(pixel);
+            }
+        }
+        Self {
+            width: self.width,
+            height: self.height,
+            rgb: flipped,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,4 +81,57 @@ pub fn encode_preview(frame: &Frame) -> Result<PreviewFrame, FrameError> {
         width: frame.width,
         height: frame.height,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mirror_horizontal_swaps_left_right_pixels() {
+        // 2×1 帧：左红(255,0,0) 右绿(0,255,0)
+        let frame = Frame::rgb(2, 1, vec![255, 0, 0, 0, 255, 0]).unwrap();
+        let mirrored = frame.mirror_horizontal();
+        // 翻转后：左绿 右红
+        assert_eq!(&mirrored.rgb[..3], &[0, 255, 0]);
+        assert_eq!(&mirrored.rgb[3..6], &[255, 0, 0]);
+    }
+
+    #[test]
+    fn mirror_horizontal_does_not_mutate_original() {
+        let frame = Frame::rgb(2, 1, vec![255, 0, 0, 0, 255, 0]).unwrap();
+        let original_rgb = frame.rgb.clone();
+        let _mirrored = frame.mirror_horizontal();
+        assert_eq!(frame.rgb, original_rgb);
+    }
+
+    #[test]
+    fn mirror_horizontal_single_pixel_frame_unchanged() {
+        let frame = Frame::rgb(1, 1, vec![42, 99, 200]).unwrap();
+        let mirrored = frame.mirror_horizontal();
+        assert_eq!(mirrored.rgb, vec![42, 99, 200]);
+        assert_eq!(mirrored.width, 1);
+        assert_eq!(mirrored.height, 1);
+    }
+
+    #[test]
+    fn mirror_horizontal_multi_row_flips_each_row_independently() {
+        // 2×2 帧：
+        //   行 0: 红(255,0,0) 绿(0,255,0)
+        //   行 1: 蓝(0,0,255) 白(255,255,255)
+        let frame = Frame::rgb(
+            2,
+            2,
+            vec![255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255],
+        )
+        .unwrap();
+        let mirrored = frame.mirror_horizontal();
+        // 翻转后：
+        //   行 0: 绿 红
+        //   行 1: 白 蓝
+        assert_eq!(
+            &mirrored.rgb,
+            &[0, 255, 0, 255, 0, 0, 255, 255, 255, 0, 0, 255]
+        );
+    }
 }
