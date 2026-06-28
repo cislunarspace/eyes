@@ -51,6 +51,7 @@ function MainView({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [poseState, setPoseState] = useState<string>('NoFace');
   const [yaw, setYaw] = useState<number | null>(null);
   const [pitch, setPitch] = useState<number | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const unlisten = listen<{
@@ -62,6 +63,18 @@ function MainView({ onOpenSettings }: { onOpenSettings: () => void }) {
       setYaw(event.payload.yaw);
       setPitch(event.payload.pitch);
     });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ image_data_url: string }>(
+      'preview-frame',
+      (event) => {
+        setPreviewUrl(event.payload.image_data_url);
+      },
+    );
     return () => {
       unlisten.then((fn) => fn());
     };
@@ -84,6 +97,13 @@ function MainView({ onOpenSettings }: { onOpenSettings: () => void }) {
       <section className="hero" aria-labelledby="title">
         <p className="eyebrow">Eyes</p>
         <h1 id="title">{t('main.title')}</h1>
+        {previewUrl && (
+          <img
+            className="preview-frame"
+            src={previewUrl}
+            alt="camera preview"
+          />
+        )}
         <div className="status-card">
           <div className="pose-badge">{poseLabel}</div>
           {yaw !== null && (
