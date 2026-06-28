@@ -57,4 +57,4 @@ impl AppState {
     }
 }
 
-pub type SharedAppState = Mutex<AppState>;
+pub type SharedAppState = Arc<Mutex<AppState>>;
