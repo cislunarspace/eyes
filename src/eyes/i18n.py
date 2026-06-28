@@ -12,6 +12,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         # overlay
         "overlay.adjust_left": "向左调整",
         "overlay.adjust_right": "向右调整",
+        "overlay.adjust_up": "向上看",
+        "overlay.adjust_down": "向下看",
         "overlay.good_posture": "当前姿势良好",
         "overlay.eye_rest": "请眺望远方",
         "overlay.corrected": "姿势良好",
@@ -69,6 +71,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         # overlay
         "overlay.adjust_left": "Adjust Left",
         "overlay.adjust_right": "Adjust Right",
+        "overlay.adjust_up": "Look Up",
+        "overlay.adjust_down": "Look Down",
         "overlay.good_posture": "Good Posture",
         "overlay.eye_rest": "Look Into the Distance",
         "overlay.corrected": "Posture Corrected",

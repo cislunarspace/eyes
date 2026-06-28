@@ -72,6 +72,8 @@ _VARIANT_GLYPH = {
 _VARIANT_GLYPH_TEXT = {
     "correction_left": "←",
     "correction_right": "→",
+    "correction_up": "↑",
+    "correction_down": "↓",
     "good_posture": "✓",
     "eye_rest": "◌",  # empty ring to read as a distant gaze hint
     "corrected": "✓",
@@ -81,6 +83,8 @@ _VARIANT_GLYPH_TEXT = {
 _VARIANT_TEXT_KEY = {
     "correction_left": "overlay.adjust_left",
     "correction_right": "overlay.adjust_right",
+    "correction_up": "overlay.adjust_down",  # 仰头 → 向下看
+    "correction_down": "overlay.adjust_up",  # 低头 → 向上看
     "good_posture": "overlay.good_posture",
     "eye_rest": "overlay.eye_rest",
     "corrected": "overlay.corrected",
@@ -216,6 +220,10 @@ class NotifierOverlay(QWidget):
             variant = "correction_left"
         elif direction == PoseState.OFF_AXIS_RIGHT:
             variant = "correction_right"
+        elif direction == PoseState.HEAD_UP:
+            variant = "correction_up"
+        elif direction == PoseState.HEAD_DOWN:
+            variant = "correction_down"
         else:
             return
 

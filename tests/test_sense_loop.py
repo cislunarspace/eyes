@@ -21,7 +21,7 @@ def test_tick_emits_correction_event_for_off_axis_streak() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(-2.0, 0.0)),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(
             off_axis_streak_threshold_seconds=0.1,
             off_axis_repeat_interval_seconds=10.0,
@@ -33,14 +33,14 @@ def test_tick_emits_correction_event_for_off_axis_streak() -> None:
     events = loop.tick(np.zeros((1, 1, 3), dtype=np.uint8), dt=0.1)
 
     corrections = [e for e in events if isinstance(e, CorrectionEvent)]
-    assert corrections == [CorrectionEvent(direction=PoseState.OFF_AXIS_LEFT)]
+    assert corrections == [CorrectionEvent(direction=PoseState.OFF_AXIS_LEFT, dimension="yaw")]
 
 
 def test_tick_emits_good_posture_event_for_facing_time() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(0.0, 0.0)),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(
             off_axis_streak_threshold_seconds=5.0,
             off_axis_repeat_interval_seconds=10.0,
@@ -58,7 +58,7 @@ def test_tick_emits_eye_rest_event_for_face_detected_time() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(2.0, 0.0)),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(
             off_axis_streak_threshold_seconds=5.0,
             off_axis_repeat_interval_seconds=10.0,
@@ -77,7 +77,7 @@ def test_tick_tracks_no_face_when_frame_is_missing() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(0.0, 0.0)),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(),
     )
 
@@ -86,7 +86,7 @@ def test_tick_tracks_no_face_when_frame_is_missing() -> None:
     assert events == []
     assert loop.current_pose is None
     assert loop.current_yaw is None
-    assert loop.current_roll is None
+    assert loop.current_pitch is None
     assert loop.current_state == PoseState.NO_FACE
 
 
@@ -96,7 +96,7 @@ def test_tick_emits_warning_level_event_on_off_axis() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(-2.0, 0.0)),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(),
     )
 
@@ -114,7 +114,7 @@ def test_tick_emits_severe_after_continuous_off_axis() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(-2.0, 0.0)),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(
             off_axis_repeat_interval_seconds=1.0,
         ),
@@ -135,7 +135,7 @@ def test_tick_no_warning_event_when_facing_screen() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(0.0, 0.0)),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(),
     )
 
@@ -149,7 +149,7 @@ def test_update_classifier_changes_classification() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(5.0, 0.0)),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(),
     )
 
@@ -158,7 +158,7 @@ def test_update_classifier_changes_classification() -> None:
     assert loop.current_state == PoseState.OFF_AXIS_RIGHT
 
     # Recalibrate neutral to 5.0 — now facing
-    loop.update_classifier(NeutralPose(yaw=5.0), Thresholds(yaw_deg=1.0, roll_deg=90.0))
+    loop.update_classifier(NeutralPose(yaw=5.0), Thresholds(yaw_deg=1.0))
     loop.tick(np.zeros((1, 1, 3), dtype=np.uint8), dt=0.1)
     assert loop.current_state == PoseState.FACING_SCREEN
 
@@ -167,7 +167,7 @@ def test_tick_handles_detector_returning_none() -> None:
     loop = SenseLoop(
         FixedPoseDetector(None),
         neutral=NeutralPose(),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(),
     )
 
@@ -176,15 +176,15 @@ def test_tick_handles_detector_returning_none() -> None:
     assert events == []
     assert loop.current_pose is None
     assert loop.current_yaw is None
-    assert loop.current_roll is None
+    assert loop.current_pitch is None
     assert loop.current_state == PoseState.NO_FACE
 
 
 def test_tick_classifies_relative_to_neutral_pose() -> None:
     loop = SenseLoop(
         FixedPoseDetector(HeadPose(10.5, -4.0)),
-        neutral=NeutralPose(yaw=10.0, roll=-4.0),
-        thresholds=Thresholds(yaw_deg=1.0, roll_deg=90.0),
+        neutral=NeutralPose(yaw=10.0, pitch=-4.0),
+        thresholds=Thresholds(yaw_deg=1.0),
         accumulator_config=AccumulatorConfig(),
     )
 
@@ -192,7 +192,7 @@ def test_tick_classifies_relative_to_neutral_pose() -> None:
 
     assert loop.current_pose == HeadPose(10.5, -4.0)
     assert loop.current_yaw == 10.5
-    assert loop.current_roll == -4.0
+    assert loop.current_pitch == -4.0
     assert loop.current_state == PoseState.FACING_SCREEN
 
 

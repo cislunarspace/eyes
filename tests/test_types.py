@@ -11,9 +11,9 @@ class TestAppConfig:
     def test_default_values(self) -> None:
         config = AppConfig()
         assert config.yaw_threshold == 1.0
-        assert config.roll_threshold == 90.0  # Disabled
+        assert config.pitch_threshold == 5.0
         assert config.neutral_yaw == 0.0
-        assert config.neutral_roll == 0.0
+        assert config.neutral_pitch == 0.0
         assert config.camera_index == 0
         assert config.snooze_until_iso is None
         assert config.sound_enabled is False
@@ -25,9 +25,9 @@ class TestAppConfig:
     def test_custom_values(self) -> None:
         config = AppConfig(
             yaw_threshold=20.0,
-            roll_threshold=15.0,
+            pitch_threshold=15.0,
             neutral_yaw=5.0,
-            neutral_roll=-3.0,
+            neutral_pitch=-3.0,
             camera_index=1,
             snooze_until_iso="2026-05-11T12:00:00+08:00",
             sound_enabled=True,
@@ -37,9 +37,9 @@ class TestAppConfig:
             off_axis_repeat_interval_seconds=20.0,
         )
         assert config.yaw_threshold == 20.0
-        assert config.roll_threshold == 15.0
+        assert config.pitch_threshold == 15.0
         assert config.neutral_yaw == 5.0
-        assert config.neutral_roll == -3.0
+        assert config.neutral_pitch == -3.0
         assert config.camera_index == 1
         assert config.snooze_until_iso == "2026-05-11T12:00:00+08:00"
         assert config.sound_enabled is True

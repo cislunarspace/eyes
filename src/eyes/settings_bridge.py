@@ -85,9 +85,11 @@ class SettingsBridge:
         """Reload config and push it to all dependent components."""
         config = self._config_store.load()
         self._sense_loop.update_classifier(
-            neutral=NeutralPose(yaw=config.neutral_yaw, roll=config.neutral_roll),
+            neutral=NeutralPose(yaw=config.neutral_yaw, pitch=config.neutral_pitch),
             thresholds=Thresholds(
-                yaw_deg=config.yaw_threshold, roll_deg=config.roll_threshold
+                yaw_deg=config.yaw_threshold,
+                pitch_deg=config.pitch_threshold,
+                pitch_hysteresis_deg=config.pitch_hysteresis,
             ),
         )
         # Rebuild the accumulator's timing thresholds via the engine's
@@ -114,8 +116,10 @@ class SettingsBridge:
         """
         config = self._config_store.load()
         self._sense_loop.update_classifier(
-            neutral=NeutralPose(yaw=config.neutral_yaw, roll=config.neutral_roll),
+            neutral=NeutralPose(yaw=config.neutral_yaw, pitch=config.neutral_pitch),
             thresholds=Thresholds(
-                yaw_deg=config.yaw_threshold, roll_deg=config.roll_threshold
+                yaw_deg=config.yaw_threshold,
+                pitch_deg=config.pitch_threshold,
+                pitch_hysteresis_deg=config.pitch_hysteresis,
             ),
         )

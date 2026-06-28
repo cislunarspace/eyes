@@ -53,7 +53,7 @@ class FrameProcessed:
 
     frame: Optional[np.ndarray]
     yaw: Optional[float]
-    roll: Optional[float]
+    pitch: Optional[float]
     state: PoseState
     events: list[SenseEvent]
     vision_resumed: bool = False
@@ -107,10 +107,10 @@ class SenseEventBus:
 
     def _dispatch_one(self, event: SenseEvent) -> None:
         match event:
-            case CorrectionEvent(direction=direction):
-                dir_str = "LEFT" if direction == PoseState.OFF_AXIS_LEFT else "RIGHT"
+            case CorrectionEvent(direction=direction, dimension=dimension):
+                dir_str = direction.value.replace("-", " ").replace(" ", "_").upper()
                 self._event_log.append(
-                    AppEventKind.PROMPT_FIRED, prompt="adjust", direction=dir_str
+                    AppEventKind.PROMPT_FIRED, prompt="adjust", direction=dir_str, dimension=dimension
                 )
                 self._overlay.show_correction(direction)
             case GoodPostureEvent():

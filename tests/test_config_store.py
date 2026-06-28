@@ -20,9 +20,9 @@ class TestConfigStore:
         config = config_store.load()
 
         assert config.yaw_threshold == 1.0
-        assert config.roll_threshold == 90.0  # Disabled
+        assert config.pitch_threshold == 5.0
         assert config.neutral_yaw == 0.0
-        assert config.neutral_roll == 0.0
+        assert config.neutral_pitch == 0.0
         assert config.camera_index == 0
         assert config.snooze_until_iso is None
         assert config.sound_enabled is False
@@ -68,9 +68,9 @@ class TestConfigStore:
         config_store = ConfigStore(config_dir=tmp_path)
         original = AppConfig(
             yaw_threshold=20.0,
-            roll_threshold=12.0,
+            pitch_threshold=12.0,
             neutral_yaw=3.0,
-            neutral_roll=-2.0,
+            neutral_pitch=-2.0,
             camera_index=1,
             snooze_until_iso="2026-05-11T12:00:00+08:00",
             sound_enabled=True,
@@ -124,7 +124,7 @@ class TestConfigStore:
         assert updated.language == "ja-JP"
 
         # Unchanged fields
-        assert updated.roll_threshold == original.roll_threshold
+        assert updated.pitch_threshold == original.pitch_threshold
         assert updated.camera_index == original.camera_index
 
     def test_invalid_yaml_falls_back_to_default(self, tmp_path: Path) -> None:

@@ -82,8 +82,8 @@ class SenseLoop:
         return self.current_pose.yaw if self.current_pose is not None else None
 
     @property
-    def current_roll(self) -> float | None:
-        return self.current_pose.roll if self.current_pose is not None else None
+    def current_pitch(self) -> float | None:
+        return self.current_pose.pitch if self.current_pose is not None else None
 
     def update_classifier(self, neutral: NeutralPose, thresholds: Thresholds) -> None:
         """Replace the calibration reference used by the classify step."""
@@ -110,4 +110,8 @@ class SenseLoop:
                 prev_classification=prev,
             )
 
-        return self.engine.tick(self.current_classification.yaw_state, dt)
+        return self.engine.tick(
+            self.current_classification.yaw_state,
+            self.current_classification.pitch_state,
+            dt,
+        )

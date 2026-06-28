@@ -19,29 +19,29 @@ class TestCalibrationIntegration:
         samples = []
         for i in range(50):
             yaw = 5.0 + (i * 0.02)  # drift from 5.0 to 5.98
-            roll = 2.0 + (i * 0.01)  # drift from 2.0 to 2.49
-            samples.append(PoseSample(yaw=yaw, roll=roll))
+            pitch = 2.0 + (i * 0.01)  # drift from 2.0 to 2.49
+            samples.append(PoseSample(yaw=yaw, pitch=pitch))
 
         result = compute_median_pose(samples)
         # The median should be around the middle of the range
         assert 5.3 < result.yaw < 5.7
-        assert 2.15 < result.roll < 2.35
+        assert 2.15 < result.pitch < 2.35
 
     def test_compute_median_stable_for_noisy_samples(self) -> None:
         """Median is robust to outliers from head movement."""
         # Add some outliers to simulate sudden head movements
         samples = [
-            PoseSample(yaw=5.0, roll=2.0),
-            PoseSample(yaw=5.1, roll=2.1),
-            PoseSample(yaw=5.2, roll=2.2),
-            PoseSample(yaw=50.0, roll=30.0),  # outlier - sudden movement
-            PoseSample(yaw=5.3, roll=2.3),
+            PoseSample(yaw=5.0, pitch=2.0),
+            PoseSample(yaw=5.1, pitch=2.1),
+            PoseSample(yaw=5.2, pitch=2.2),
+            PoseSample(yaw=50.0, pitch=30.0),  # outlier - sudden movement
+            PoseSample(yaw=5.3, pitch=2.3),
         ]
 
         result = compute_median_pose(samples)
         # Median should be (5.1, 2.1) since it sorts by yaw: 5.0, 5.1, 5.2, 5.3, 50.0
         assert result.yaw == pytest.approx(5.2)  # middle of sorted list
-        assert result.roll == pytest.approx(2.2)
+        assert result.pitch == pytest.approx(2.2)
 
 
 class TestSettingsPersistence:
@@ -73,13 +73,13 @@ class TestSettingsPersistence:
         # Simulate calibration result
         calibrated_yaw = 3.5
         calibrated_roll = -1.2
-        config_store.update(neutral_yaw=calibrated_yaw, neutral_roll=calibrated_roll)
+        config_store.update(neutral_yaw=calibrated_yaw, neutral_pitch=calibrated_roll)
 
         # Reload and verify
         config_store2 = ConfigStore(config_dir=tmp_path)
         reloaded = config_store2.load()
         assert reloaded.neutral_yaw == pytest.approx(calibrated_yaw)
-        assert reloaded.neutral_roll == pytest.approx(calibrated_roll)
+        assert reloaded.neutral_pitch == pytest.approx(calibrated_roll)
 
     def test_camera_index_update_persists(self, tmp_path: Path) -> None:
         """Camera selection persists across restarts."""

@@ -56,8 +56,12 @@ class AppController:
         self._timer.setInterval(TICK_INTERVAL_MS)  # 10 Hz
         self._sense_loop = SenseLoop(
             None,
-            neutral=NeutralPose(yaw=self._config.neutral_yaw, roll=self._config.neutral_roll),
-            thresholds=Thresholds(yaw_deg=self._config.yaw_threshold, roll_deg=self._config.roll_threshold),
+            neutral=NeutralPose(yaw=self._config.neutral_yaw, pitch=self._config.neutral_pitch),
+            thresholds=Thresholds(
+                yaw_deg=self._config.yaw_threshold,
+                pitch_deg=self._config.pitch_threshold,
+                pitch_hysteresis_deg=self._config.pitch_hysteresis,
+            ),
             accumulator_config=AccumulatorConfig(
                 off_axis_streak_threshold_seconds=self._config.off_axis_streak_threshold_seconds,
                 off_axis_repeat_interval_seconds=self._config.off_axis_repeat_interval_seconds,
@@ -127,20 +131,20 @@ class AppController:
         self._config = self._config_store.load()
         self._settings_bridge.apply_config()
 
-    def _on_calibration_completed(self, yaw: float, roll: float) -> None:
+    def _on_calibration_completed(self, yaw: float, pitch: float) -> None:
         self._event_log.append(
             AppEventKind.STATE_CHANGE,
-            state=f"CALIBRATED: yaw={yaw:+.1f}°, roll={roll:+.1f}°",
+            state=f"CALIBRATED: yaw={yaw:+.1f}°, pitch={pitch:+.1f}°",
         )
         self._config = self._config_store.load()
-        self._settings_bridge.apply_calibration(yaw, roll)
+        self._settings_bridge.apply_calibration(yaw, pitch)
 
-    def _feed_calibration(self, yaw: float | None, roll: float | None) -> None:
+    def _feed_calibration(self, yaw: float | None, pitch: float | None) -> None:
         if self._settings_dialog is None:
             return
-        self._settings_dialog.update_current_pose(yaw, roll)
-        if yaw is not None and roll is not None:
-            self._settings_dialog.add_calibration_sample(yaw, roll)
+        self._settings_dialog.update_current_pose(yaw, pitch)
+        if yaw is not None and pitch is not None:
+            self._settings_dialog.add_calibration_sample(yaw, pitch)
 
     # --- Lifecycle ---
     def close(self) -> None:
@@ -201,7 +205,7 @@ class AppController:
             processed = FrameProcessed(
                 frame=result.frame,
                 yaw=self._sense_loop.current_yaw,
-                roll=self._sense_loop.current_roll,
+                pitch=self._sense_loop.current_pitch,
                 state=self._sense_loop.current_state,
                 events=list(events),
                 vision_resumed=just_resumed,
@@ -211,8 +215,8 @@ class AppController:
             if just_resumed:
                 self._on_vision_resumed()
             self._window.update_frame(processed.frame)
-            self._window.set_state(processed.yaw, processed.roll, processed.state)
-            self._feed_calibration(processed.yaw, processed.roll)
+            self._window.set_state(processed.yaw, processed.pitch, processed.state)
+            self._feed_calibration(processed.yaw, processed.pitch)
             self._log_state_change(processed.state)
             self._bus.dispatch(processed.events)
         else:

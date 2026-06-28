@@ -14,10 +14,11 @@ class AppConfig:
     Attributes:
         yaw_threshold: Yaw angle (degrees) beyond which the user is
             considered off-axis.
-        roll_threshold: Roll angle threshold — currently disabled (set
-            to 90°) so roll does not affect classification.
+        pitch_threshold: Pitch angle (degrees) beyond which the user is
+            considered looking up or down.
+        pitch_hysteresis: Hysteresis band for pitch classification.
         neutral_yaw: Calibration baseline for yaw.
-        neutral_roll: Calibration baseline for roll.
+        neutral_pitch: Calibration baseline for pitch.
         camera_index: System camera device index.
         snooze_until_iso: ISO-8601 timestamp until which alerts are
             silenced, or ``None`` when not snoozed.
@@ -35,9 +36,10 @@ class AppConfig:
     """
 
     yaw_threshold: float = 1.0
-    roll_threshold: float = 90.0  # Disabled: roll no longer affects classification
+    pitch_threshold: float = 5.0
+    pitch_hysteresis: float = 2.5
     neutral_yaw: float = 0.0
-    neutral_roll: float = 0.0
+    neutral_pitch: float = 0.0
     camera_index: int = 0
     snooze_until_iso: Optional[str] = None
     sound_enabled: bool = False

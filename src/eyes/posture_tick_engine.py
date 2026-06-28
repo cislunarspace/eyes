@@ -12,6 +12,7 @@ from .types import WarningLevel, WarningLevelEvent
 @dataclass(frozen=True)
 class CorrectionEvent:
     direction: PoseState
+    dimension: str = "yaw"  # "yaw" 或 "pitch"
 
 
 @dataclass(frozen=True)
@@ -63,9 +64,14 @@ class PostureTickEngine:
             if eyest_threshold_seconds is not None
             else _DEFAULT_EYEREST_THRESHOLD
         )
-        self._off_axis_streak: float = 0.0
-        self._repeat_due_at: Optional[float] = None
-        self._last_emit_at: Optional[float] = None
+        # Yaw 轴 streak 追踪
+        self._yaw_streak: float = 0.0
+        self._yaw_repeat_due_at: Optional[float] = None
+        self._yaw_last_emit_at: Optional[float] = None
+        # Pitch 轴 streak 追踪
+        self._pitch_streak: float = 0.0
+        self._pitch_repeat_due_at: Optional[float] = None
+        self._pitch_last_emit_at: Optional[float] = None
         self._facing_seconds: float = 0.0
         self._presence_seconds: float = 0.0
         self._snoozed: bool = False
@@ -103,46 +109,70 @@ class PostureTickEngine:
         if eyest_threshold_seconds is not None:
             self._eyest_threshold = eyest_threshold_seconds
 
-    def tick(self, state: PoseState, dt: float) -> list[SenseEvent]:
+    def tick(self, yaw_state: PoseState, pitch_state: PoseState, dt: float) -> list[SenseEvent]:
+        """处理一个 tick，yaw 和 pitch 独立追踪 streak。
+
+        正对屏幕 = 两个轴都在阈值内。
+        有脸 = 任意轴不是 NO_FACE。
+        Warning level 仅由 yaw 偏离驱动；pitch 偏离触发 CorrectionEvent 但不升级 warning。
+        """
         events: list[SenseEvent] = []
         self._warning_event = None
 
         if self._snoozed:
             return events
 
-        # Off-axis streak tracking
-        if state in (PoseState.OFF_AXIS_LEFT, PoseState.OFF_AXIS_RIGHT):
-            self._off_axis_streak += dt
-            if self._off_axis_streak >= self._off_axis_streak_threshold:
-                if self._last_emit_at is None:
-                    self._last_emit_at = self._off_axis_streak
-                    self._repeat_due_at = self._off_axis_streak + self._off_axis_repeat_interval
-                    events.append(CorrectionEvent(direction=state))
-                elif self._repeat_due_at is not None and self._off_axis_streak >= self._repeat_due_at:
-                    self._repeat_due_at = self._off_axis_streak + self._off_axis_repeat_interval
-                    events.append(CorrectionEvent(direction=state))
+        # --- Yaw 轴 streak 追踪 ---
+        if yaw_state in (PoseState.OFF_AXIS_LEFT, PoseState.OFF_AXIS_RIGHT):
+            self._yaw_streak += dt
+            if self._yaw_streak >= self._off_axis_streak_threshold:
+                if self._yaw_last_emit_at is None:
+                    self._yaw_last_emit_at = self._yaw_streak
+                    self._yaw_repeat_due_at = self._yaw_streak + self._off_axis_repeat_interval
+                    events.append(CorrectionEvent(direction=yaw_state, dimension="yaw"))
+                elif self._yaw_repeat_due_at is not None and self._yaw_streak >= self._yaw_repeat_due_at:
+                    self._yaw_repeat_due_at = self._yaw_streak + self._off_axis_repeat_interval
+                    events.append(CorrectionEvent(direction=yaw_state, dimension="yaw"))
         else:
-            self._off_axis_streak = 0.0
-            self._repeat_due_at = None
-            self._last_emit_at = None
+            self._yaw_streak = 0.0
+            self._yaw_repeat_due_at = None
+            self._yaw_last_emit_at = None
 
-        # Facing time accumulation
-        if state == PoseState.FACING_SCREEN:
+        # --- Pitch 轴 streak 追踪 ---
+        if pitch_state in (PoseState.HEAD_UP, PoseState.HEAD_DOWN):
+            self._pitch_streak += dt
+            if self._pitch_streak >= self._off_axis_streak_threshold:
+                if self._pitch_last_emit_at is None:
+                    self._pitch_last_emit_at = self._pitch_streak
+                    self._pitch_repeat_due_at = self._pitch_streak + self._off_axis_repeat_interval
+                    events.append(CorrectionEvent(direction=pitch_state, dimension="pitch"))
+                elif self._pitch_repeat_due_at is not None and self._pitch_streak >= self._pitch_repeat_due_at:
+                    self._pitch_repeat_due_at = self._pitch_streak + self._off_axis_repeat_interval
+                    events.append(CorrectionEvent(direction=pitch_state, dimension="pitch"))
+        else:
+            self._pitch_streak = 0.0
+            self._pitch_repeat_due_at = None
+            self._pitch_last_emit_at = None
+
+        # --- 正对屏幕时间累积（两个轴都在阈值内才算） ---
+        is_facing = yaw_state == PoseState.FACING_SCREEN and pitch_state == PoseState.FACING_SCREEN
+        if is_facing:
             self._facing_seconds += dt
             if self._facing_seconds >= self._facing_threshold:
                 self._facing_seconds = 0.0
                 events.append(GoodPostureEvent())
 
-        # Presence time accumulation
-        if state != PoseState.NO_FACE:
+        # --- 有脸时间累积（任意轴不是 NO_FACE 即有脸） ---
+        has_face = yaw_state != PoseState.NO_FACE
+        if has_face:
             self._presence_seconds += dt
             if self._presence_seconds >= self._eyest_threshold:
                 self._presence_seconds = 0.0
                 events.append(EyeRestEvent())
 
-        # Warning level state machine
-        if state in (PoseState.OFF_AXIS_LEFT, PoseState.OFF_AXIS_RIGHT):
-            direction = "left" if state == PoseState.OFF_AXIS_LEFT else "right"
+        # --- Warning level 状态机（仅 yaw 驱动） ---
+        if yaw_state in (PoseState.OFF_AXIS_LEFT, PoseState.OFF_AXIS_RIGHT):
+            direction = "left" if yaw_state == PoseState.OFF_AXIS_LEFT else "right"
             if self._warning_level in (WarningLevel.NORMAL, WarningLevel.CORRECTED):
                 self._warning_level = WarningLevel.WARNING
                 self._warning_direction = direction
@@ -165,7 +195,7 @@ class PostureTickEngine:
                         direction=direction,
                     )
                     events.append(self._warning_event)
-        elif state == PoseState.FACING_SCREEN:
+        elif is_facing:
             if self._warning_level in (WarningLevel.WARNING, WarningLevel.SEVERE):
                 self._warning_level = WarningLevel.CORRECTED
                 self._corrected_remaining_seconds = 2.0
@@ -185,7 +215,7 @@ class PostureTickEngine:
                     )
                     events.append(self._warning_event)
                     self._corrected_remaining_seconds = 0.0
-        elif state == PoseState.NO_FACE:
+        elif yaw_state == PoseState.NO_FACE:
             if self._warning_level in (WarningLevel.WARNING, WarningLevel.SEVERE, WarningLevel.CORRECTED):
                 self._warning_level = WarningLevel.NORMAL
                 self._warning_event = WarningLevelEvent(

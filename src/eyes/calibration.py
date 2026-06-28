@@ -7,10 +7,10 @@ from typing import NamedTuple
 
 
 class PoseSample(NamedTuple):
-    """A single yaw/roll sample from head pose detection."""
+    """A single yaw/pitch sample from head pose detection."""
 
     yaw: float
-    roll: float
+    pitch: float
 
 
 def compute_median_pose(samples: list[PoseSample]) -> PoseSample:
@@ -46,8 +46,8 @@ def compute_median_pose(samples: list[PoseSample]) -> PoseSample:
     mid1 = n // 2 - 1
     mid2 = n // 2
     median_yaw = (sorted_by_yaw[mid1].yaw + sorted_by_yaw[mid2].yaw) / 2
-    median_roll = (sorted_by_yaw[mid1].roll + sorted_by_yaw[mid2].roll) / 2
-    return PoseSample(yaw=median_yaw, roll=median_roll)
+    median_pitch = (sorted_by_yaw[mid1].pitch + sorted_by_yaw[mid2].pitch) / 2
+    return PoseSample(yaw=median_yaw, pitch=median_pitch)
 
 
 # Epsilon for floating-point countdown comparisons. 10 ticks of 0.1s leaves
@@ -61,7 +61,7 @@ class CalibrationResult:
     """Final outcome of a calibration session."""
 
     yaw: float
-    roll: float
+    pitch: float
     sample_count: int
 
 
@@ -106,11 +106,11 @@ class CalibrationSession:
         self._active = True
         self._finished = False
 
-    def feed(self, yaw: float, roll: float) -> None:
+    def feed(self, yaw: float, pitch: float) -> None:
         """Record a pose sample. No-op when the session is inactive."""
         if not self._active:
             return
-        self._samples.append(PoseSample(yaw=yaw, roll=roll))
+        self._samples.append(PoseSample(yaw=yaw, pitch=pitch))
 
     def tick(self, dt: float) -> None:
         """Advance the countdown. No-op when the session is inactive.
@@ -132,5 +132,5 @@ class CalibrationSession:
             return None
         median = compute_median_pose(self._samples)
         return CalibrationResult(
-            yaw=median.yaw, roll=median.roll, sample_count=len(self._samples)
+            yaw=median.yaw, pitch=median.pitch, sample_count=len(self._samples)
         )

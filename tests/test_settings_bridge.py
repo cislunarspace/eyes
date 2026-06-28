@@ -12,9 +12,10 @@ from eyes.types import AppConfig
 def _config(**overrides: object) -> AppConfig:
     base = dict(
         yaw_threshold=2.0,
-        roll_threshold=90.0,
+        pitch_threshold=5.0,
+        pitch_hysteresis=2.5,
         neutral_yaw=0.0,
-        neutral_roll=0.0,
+        neutral_pitch=0.0,
         camera_index=0,
         snooze_until_iso=None,
         sound_enabled=False,
@@ -75,7 +76,7 @@ class _FakeEngine:
 
 class TestApplyConfig:
     def test_calls_update_classifier(self) -> None:
-        store = _FakeStore(_config(neutral_yaw=1.0, neutral_roll=2.0))
+        store = _FakeStore(_config(neutral_yaw=1.0, neutral_pitch=2.0))
         sense_loop = _FakeSenseLoop()
         bridge = SettingsBridge(
             config_store=store,
@@ -88,7 +89,7 @@ class TestApplyConfig:
         bridge.apply_config()
         assert len(sense_loop.update_calls) == 1
         neutral, thresholds = sense_loop.update_calls[0]
-        assert neutral == NeutralPose(yaw=1.0, roll=2.0)
+        assert neutral == NeutralPose(yaw=1.0, pitch=2.0)
         assert thresholds.yaw_deg == 2.0
 
     def test_calls_autostart_apply_config(self) -> None:
@@ -151,7 +152,7 @@ class TestApplyConfig:
 
 class TestApplyCalibration:
     def test_reloads_config_and_rebuilds_classifier(self) -> None:
-        store = _FakeStore(_config(neutral_yaw=3.0, neutral_roll=-1.0))
+        store = _FakeStore(_config(neutral_yaw=3.0, neutral_pitch=-1.0))
         sense_loop = _FakeSenseLoop()
         bridge = SettingsBridge(
             config_store=store,
@@ -164,7 +165,7 @@ class TestApplyCalibration:
         bridge.apply_calibration(3.0, -1.0)
         assert len(sense_loop.update_calls) == 1
         neutral, _ = sense_loop.update_calls[0]
-        assert neutral == NeutralPose(yaw=3.0, roll=-1.0)
+        assert neutral == NeutralPose(yaw=3.0, pitch=-1.0)
 
     def test_does_not_change_accumulator_timing(self) -> None:
         store = _FakeStore(_config())

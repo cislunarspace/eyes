@@ -124,18 +124,18 @@ class TestCorrectionDispatch:
         log = MagicMock()
         overlay = _FakeOverlay()
         bus = SenseEventBus(event_log=log, overlay=overlay, window=_FakeWindow())
-        bus.dispatch([CorrectionEvent(direction=PoseState.OFF_AXIS_LEFT)])
+        bus.dispatch([CorrectionEvent(direction=PoseState.OFF_AXIS_LEFT, dimension="yaw")])
         assert overlay.correction_calls == [PoseState.OFF_AXIS_LEFT]
         log.append.assert_called_once_with(
-            AppEventKind.PROMPT_FIRED, prompt="adjust", direction="LEFT"
+            AppEventKind.PROMPT_FIRED, prompt="adjust", direction="OFF_AXIS_LEFT", dimension="yaw"
         )
 
     def test_right_direction(self) -> None:
         log = MagicMock()
         overlay = _FakeOverlay()
         bus = SenseEventBus(event_log=log, overlay=overlay, window=_FakeWindow())
-        bus.dispatch([CorrectionEvent(direction=PoseState.OFF_AXIS_RIGHT)])
+        bus.dispatch([CorrectionEvent(direction=PoseState.OFF_AXIS_RIGHT, dimension="yaw")])
         assert overlay.correction_calls == [PoseState.OFF_AXIS_RIGHT]
         log.append.assert_called_once_with(
-            AppEventKind.PROMPT_FIRED, prompt="adjust", direction="RIGHT"
+            AppEventKind.PROMPT_FIRED, prompt="adjust", direction="OFF_AXIS_RIGHT", dimension="yaw"
         )

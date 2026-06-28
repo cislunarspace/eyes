@@ -44,9 +44,9 @@ from .runtime_timings import CALIBRATION_TICK_INTERVAL_MS
 _YAW_SLIDER_MIN = 1
 _YAW_SLIDER_MAX = 30
 _YAW_SLIDER_TICK = 5
-_ROLL_SLIDER_MIN = 5
-_ROLL_SLIDER_MAX = 30
-_ROLL_SLIDER_TICK = 5
+_PITCH_SLIDER_MIN = 1
+_PITCH_SLIDER_MAX = 30
+_PITCH_SLIDER_TICK = 5
 _STREAK_SLIDER_MIN = 0
 _STREAK_SLIDER_MAX = 30
 _STREAK_SLIDER_TICK = 5
@@ -168,26 +168,26 @@ class SettingsDialog(QDialog):
         self._row_label_repeat = QLabel(t("settings.repeat_prompt_interval"))
         self._form_layout.addRow(self._row_label_repeat, repeat_layout)
 
-        # Roll threshold slider
+        # Pitch threshold slider
         pitch_layout = QHBoxLayout()
-        self._roll_slider = QSlider()
-        self._roll_slider.setOrientation(Qt.Orientation.Horizontal)
-        self._roll_slider.setMinimum(_ROLL_SLIDER_MIN)
-        self._roll_slider.setMaximum(_ROLL_SLIDER_MAX)
-        self._roll_slider.setValue(int(self._get_value("roll_threshold", 5.0)))
-        self._roll_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self._roll_slider.setTickInterval(_ROLL_SLIDER_TICK)
-        self._roll_slider.valueChanged.connect(self._on_roll_changed)
-        self._roll_value_label = QLabel(f"{self._get_value('roll_threshold', 5.0):.0f}°")
-        pitch_layout.addWidget(self._roll_slider)
-        pitch_layout.addWidget(self._roll_value_label)
-        self._row_label_roll = QLabel(t("settings.pitch_threshold"))
-        self._form_layout.addRow(self._row_label_roll, pitch_layout)
+        self._pitch_slider = QSlider()
+        self._pitch_slider.setOrientation(Qt.Orientation.Horizontal)
+        self._pitch_slider.setMinimum(_PITCH_SLIDER_MIN)
+        self._pitch_slider.setMaximum(_PITCH_SLIDER_MAX)
+        self._pitch_slider.setValue(int(self._get_value("pitch_threshold", 5.0)))
+        self._pitch_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._pitch_slider.setTickInterval(_PITCH_SLIDER_TICK)
+        self._pitch_slider.valueChanged.connect(self._on_pitch_changed)
+        self._pitch_value_label = QLabel(f"{self._get_value('pitch_threshold', 5.0):.0f}°")
+        pitch_layout.addWidget(self._pitch_slider)
+        pitch_layout.addWidget(self._pitch_value_label)
+        self._row_label_pitch = QLabel(t("settings.pitch_threshold"))
+        self._form_layout.addRow(self._row_label_pitch, pitch_layout)
 
         # Neutral pose display and calibrate button
         pose_layout = QHBoxLayout()
         self._neutral_pose_label = QLabel(
-            f"({self._get_value('neutral_yaw', 0.0):+.1f}°, {self._get_value('neutral_roll', 0.0):+.1f}°)"
+            f"({self._get_value('neutral_yaw', 0.0):+.1f}°, {self._get_value('neutral_pitch', 0.0):+.1f}°)"
         )
         self._calibrate_button = QPushButton(t("settings.calibrate_button"))
         self._calibrate_button.clicked.connect(self._start_calibration)
@@ -267,9 +267,9 @@ class SettingsDialog(QDialog):
         self._repeat_value_label.setText(f"{value}s")
         self._set_value("off_axis_repeat_interval_seconds", float(value))
 
-    def _on_roll_changed(self, value: int) -> None:
-        self._roll_value_label.setText(f"{value}°")
-        self._set_value("roll_threshold", float(value))
+    def _on_pitch_changed(self, value: int) -> None:
+        self._pitch_value_label.setText(f"{value}°")
+        self._set_value("pitch_threshold", float(value))
 
     def _on_camera_changed(self, index: int) -> None:
         if index >= 0:
@@ -313,15 +313,15 @@ class SettingsDialog(QDialog):
         result = self._calibration_view.session.result()
         if result is not None:
             self._set_value("neutral_yaw", result.yaw)
-            self._set_value("neutral_roll", result.roll)
+            self._set_value("neutral_pitch", result.pitch)
             self._neutral_pose_label.setText(
-                f"({result.yaw:+.1f}°, {result.roll:+.1f}°)"
+                f"({result.yaw:+.1f}°, {result.pitch:+.1f}°)"
             )
-            self.calibration_completed.emit(result.yaw, result.roll)
+            self.calibration_completed.emit(result.yaw, result.pitch)
         self._calibrate_button.setEnabled(True)
         self._countdown_label.setText(t("calibration.complete"))
 
-    def add_calibration_sample(self, yaw: float, roll: float) -> bool:
+    def add_calibration_sample(self, yaw: float, pitch: float) -> bool:
         """Forward a pose sample to the active calibration session.
 
         Returns True if the session was active and accepted the sample.
@@ -329,7 +329,7 @@ class SettingsDialog(QDialog):
         """
         if not self._calibration_view.is_calibrating:
             return False
-        self._calibration_view.feed(yaw, roll)
+        self._calibration_view.feed(yaw, pitch)
         return True
 
     def is_calibrating(self) -> bool:
@@ -381,7 +381,7 @@ class SettingsDialog(QDialog):
         self._row_label_yaw.setText(t("settings.yaw_threshold"))
         self._row_label_streak.setText(t("settings.first_prompt_delay"))
         self._row_label_repeat.setText(t("settings.repeat_prompt_interval"))
-        self._row_label_roll.setText(t("settings.pitch_threshold"))
+        self._row_label_pitch.setText(t("settings.pitch_threshold"))
         self._row_label_neutral.setText(t("settings.neutral_pose"))
         self._row_label_camera.setText(t("settings.camera"))
         self._row_label_sound.setText(t("settings.sound"))
