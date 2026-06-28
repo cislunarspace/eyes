@@ -64,7 +64,7 @@ impl<C: FrameSource> MonitoringWorker<C> {
         };
 
         let (width, height) = (frame.width, frame.height);
-        let preview = encode_preview(&frame).ok();
+        let preview = encode_preview(&frame.mirror_horizontal()).ok();
 
         // 检测
         let detected_pose = self
