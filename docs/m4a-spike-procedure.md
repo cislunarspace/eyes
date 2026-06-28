@@ -1,95 +1,101 @@
-# M4a Spike 评估流程
+# M4a Spike 评估文档
 
-## 前置条件
+## 概述
 
-- Windows 桌面机器（i5/Ryzen 5 级别 CPU）
-- Rust 工具链已安装
-- 摄像头可用
+评估 ONNX 检测器（YuNet + solvePnP）在 Windows CPU 上的可行性。目标：用单个 ~232 KB 的模型替代 Python 的 MediaPipe，实现离线头姿检测。
 
-## 步骤 1：准备模型
+## 前提条件
 
-### YuNet 人脸检测模型
+- Windows 10/11
+- Rust 工具链（rustup）
+- 摄像头（用于手动姿态测试）
+- 模型文件：`models/face_detection_yunet_2023mar.onnx`（已下载）
 
-从 OpenCV 的模型仓库下载：
-- 文件：`face_detection_yunet_2023mar.onnx`
-- 来源：https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet_2023mar
-- 许可证：Apache 2.0
-- 大小：约 0.2 MB
+## 评估步骤
 
-```bash
-# 放到 models/ 目录
-mkdir -p models
-curl -L -o models/face_detection_yunet_2023mar.onnx \
-  https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet_2023mar/face_detection_yunet_2023mar.onnx
-```
+### Step 1: 确认模型文件
 
-### PFLD 关键点模型
+验证 `models/face_detection_yunet_2023mar.onnx` 存在且大小合理（~232 KB）。
 
-从 PFLD 的社区导出版本获取：
-- 文件：`pfld_inference.onnx`
-- 来源：https://github.com/Hsintao/PFLD-pytorch （需导出为 ONNX）
-- 许可证：MIT
-- 大小：约 1-3 MB
-
-备选（如果 PFLD 导出困难）：
-- 使用 MediaPipe Face Mesh 的 ONNX 导出版本
-- 或使用 OpenCV 内置的 `Facemark` API
-
-## 步骤 2：添加依赖
+### Step 2: 添加依赖
 
 在 `src-tauri/Cargo.toml` 中添加：
 
 ```toml
 [dependencies]
-ort = "2"
+ort = "2"  # ONNX Runtime Rust 绑定
 
 [features]
-default = []
-onnx-detector = ["dep:ort"]
+onnx-detector = []  # 可选功能，控制是否编译 ONNX 检测器
 ```
 
-## 步骤 3：运行延迟测试
+注意：`ort` crate 会自动下载 ONNX Runtime 动态库（~15 MB），首次构建较慢。
+
+### Step 3: 实现检测器
+
+在 `src-tauri/src/monitoring/onnx_detector.rs` 中填充：
+
+1. `YuNetDetector::new()` — 加载 ONNX 模型
+2. `detect()` — 完整推理流程：
+   - 预处理：RGB → 320×240 float32
+   - YuNet 推理：获取边界框 + 5 关键点
+   - solvePnP：5 个 2D 关键点 + 5 个 3D 模型点 → 旋转矩阵
+   - 提取 yaw 和 pitch
+
+### Step 4: 延迟测试
 
 ```bash
-cd src-tauri
 cargo test --features onnx-detector --test onnx_detector_spike -- --nocapture
 ```
 
 预期输出：
-- 模型加载时间
-- 单帧推理延迟（应 < 30 ms）
-- 5 种姿态的分类结果
 
-## 步骤 4：手动姿态测试
+```
+YuNet 推理延迟:
+  P50: 8.2 ms
+  P95: 14.5 ms
+  P99: 18.3 ms
+solvePnP 延迟: 0.05 ms
+总延迟 P95: 14.6 ms
+✅ 低于 30 ms 阈值
+```
 
-在评估脚本中添加摄像头循环：
+如果 P95 > 30 ms，需要优化（降低输入分辨率、量化模型等）。
 
-1. 正对摄像头 → 应输出 yaw ≈ 0°, pitch ≈ 0°
-2. 头向左转 30° → 应输出 yaw ≈ -30°
-3. 头向右转 30° → 应输出 yaw ≈ +30°
-4. 仰头 20° → 应输出 pitch ≈ +20°
-5. 低头 20° → 应输出 pitch ≈ -20°
+### Step 5: 手动姿态测试
 
-## 步骤 5：记录结果
+用摄像头运行 5 种姿态，验证输出：
 
-在 ADR-0007 中填写：
-- [ ] 模型文件名和 SHA256
-- [ ] 模型大小
-- [ ] 推理延迟（ms）
-- [ ] 5 种姿态的精度对比
-- [ ] 最终选型决定
+| 姿态 | 预期输出 |
+|------|----------|
+| 正面 | yaw ≈ 0, pitch ≈ 0 |
+| 左转 30° | yaw ≈ -30 |
+| 右转 30° | yaw ≈ 30 |
+| 仰头 | pitch > 0 |
+| 低头 | pitch < 0 |
 
-## 故障排除
+对比 Python 端 MediaPipe 的输出，确认符号约定一致。
 
-### YuNet 加载失败
-- 检查 ONNX 版本兼容性（ort crate 支持的 opset 版本）
-- 尝试用 Netron 打开模型查看输入输出 shape
+## 成功标准
 
-### PFLD 精度不够
-- 升级到 SCRFD + MediaPipe Face Mesh ONNX（更大但更准）
-- 或直接使用 SixDRepNet（单阶段，跳过关键点）
+- [x] 模型文件已下载（~232 KB）
+- [ ] `ort` 依赖成功编译
+- [ ] 检测器实现完成
+- [ ] P95 延迟 < 30 ms
+- [ ] 5 种姿态正确识别
+- [ ] 符号约定与 Python 端一致
 
-### 延迟超标
-- 检查是否在 debug 模式运行（应使用 release）
-- 尝试降低输入分辨率（320×240 而非 640×480）
-- 检查是否启用了 ONNX Runtime 的 CPU 优化
+## 已知限制
+
+- 5 关键点精度有限，头部大角度旋转（>60°）时可能不稳定
+- 如果精度不够，可考虑增加 PFLD 模型做 106 关键点（需自行导出 ONNX）
+- `ort` crate 首次构建会下载 ~15 MB 的 ONNX Runtime 动态库
+
+## 下一步
+
+Spike 通过后：
+
+1. 实现 `detector.rs` 的 `YuNetDetector` 完整版本
+2. 添加 `--features onnx-detector` 到 CI 构建
+3. 在设置页面添加"检测器选择"下拉框
+4. 处理 `ort` 动态库的打包和分发

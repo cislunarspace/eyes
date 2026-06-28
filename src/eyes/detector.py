@@ -7,7 +7,7 @@ The detector composes three private pieces:
   - An ``AssetResolver`` that picks the model file path (local or remote).
   - A ``DetectorBackend`` (here: ``MediaPipeBackend``) that owns the
     FaceLandmarker and does frame preprocessing + inference.
-  - ``head_pose_geometry.rotation_to_yaw_roll`` — the pure rotation math,
+  - ``head_pose_geometry.rotation_to_yaw_pitch`` — the pure rotation math,
     tested in isolation without MediaPipe.
 """
 
@@ -26,7 +26,7 @@ from mediapipe.tasks.python.vision import (
 )
 
 from .classifier import HeadPose
-from .head_pose_geometry import transform_to_yaw_roll
+from .head_pose_geometry import transform_to_yaw_pitch
 
 # ---------------------------------------------------------------------------
 # Asset resolution — seams for the model path
@@ -88,7 +88,7 @@ class DetectorBackend(Protocol):
     no face is detected.
 
     The caller is responsible for converting the matrix to a
-    HeadPose via ``head_pose_geometry.transform_to_yaw_roll``.
+    HeadPose via ``head_pose_geometry.transform_to_yaw_pitch``.
     """
 
     def infer(self, frame: np.ndarray) -> Optional[np.ndarray]:
@@ -186,7 +186,7 @@ class HeadPoseDetector:
         matrix = self._backend.infer(frame)
         if matrix is None:
             return None
-        return transform_to_yaw_roll(matrix)
+        return transform_to_yaw_pitch(matrix)
 
     def close(self) -> None:
         self._backend.close()

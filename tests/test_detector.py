@@ -37,14 +37,15 @@ def _yaw_matrix(degrees: float) -> np.ndarray:
     ])
 
 
-def _roll_matrix(degrees: float) -> np.ndarray:
+def _pitch_matrix(degrees: float) -> np.ndarray:
+    """Return a 3×3 rotation matrix for pitch rotation (about the X axis)."""
     radians = math.radians(degrees)
     cos = math.cos(radians)
     sin = math.sin(radians)
     return np.array([
-        [cos, -sin, 0.0],
-        [sin, cos, 0.0],
-        [0.0, 0.0, 1.0],
+        [1.0, 0.0, 0.0],
+        [0.0, cos, -sin],
+        [0.0, sin, cos],
     ])
 
 
@@ -64,10 +65,10 @@ def _centered_landmarks() -> list[object]:
 
 
 class TestEulerFromRotationMatrix:
-    def test_identity_gives_zero_yaw_roll(self) -> None:
+    def test_identity_gives_zero_yaw_pitch(self) -> None:
         pose = _euler_from_rotation_matrix(np.eye(3))
         assert abs(pose.yaw) < 0.01
-        assert abs(pose.roll) < 0.01
+        assert abs(pose.pitch) < 0.01
 
     def test_positive_yaw(self) -> None:
         pose = _euler_from_rotation_matrix(_yaw_matrix(12.0))
@@ -77,19 +78,19 @@ class TestEulerFromRotationMatrix:
         pose = _euler_from_rotation_matrix(_yaw_matrix(-12.0))
         assert pose.yaw == pytest.approx(-12.0)
 
-    def test_positive_roll(self) -> None:
-        pose = _euler_from_rotation_matrix(_roll_matrix(10.0))
-        assert pose.roll == pytest.approx(10.0)
+    def test_positive_pitch(self) -> None:
+        pose = _euler_from_rotation_matrix(_pitch_matrix(10.0))
+        assert pose.pitch == pytest.approx(10.0)
 
-    def test_negative_roll(self) -> None:
-        pose = _euler_from_rotation_matrix(_roll_matrix(-10.0))
-        assert pose.roll == pytest.approx(-10.0)
+    def test_negative_pitch(self) -> None:
+        pose = _euler_from_rotation_matrix(_pitch_matrix(-10.0))
+        assert pose.pitch == pytest.approx(-10.0)
 
-    def test_combined_yaw_and_roll(self) -> None:
-        rotation = _yaw_matrix(12.0) @ _roll_matrix(10.0)
+    def test_combined_yaw_and_pitch(self) -> None:
+        rotation = _yaw_matrix(12.0) @ _pitch_matrix(10.0)
         pose = _euler_from_rotation_matrix(rotation)
         assert pose.yaw == pytest.approx(12.0)
-        assert pose.roll == pytest.approx(10.0)
+        assert pose.pitch == pytest.approx(10.0)
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +159,9 @@ def test_detector_return_type_is_head_pose(monkeypatch) -> None:
     assert result is not None
     assert isinstance(result, HeadPose)
     assert isinstance(result.yaw, float)
-    assert isinstance(result.roll, float)
+    assert isinstance(result.pitch, float)
     assert abs(result.yaw) < 0.01
-    assert abs(result.roll) < 0.01
+    assert abs(result.pitch) < 0.01
 
 
 def test_detector_yaw_sign_positive_right(monkeypatch) -> None:
