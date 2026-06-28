@@ -17,7 +17,7 @@ fn detector_trait_can_be_implemented_by_fake_for_tests() {
         poses: vec![
             Some(HeadPose {
                 yaw: 5.0,
-                roll: 1.0,
+                pitch: 1.0,
             }),
             None,
         ],
@@ -28,7 +28,7 @@ fn detector_trait_can_be_implemented_by_fake_for_tests() {
         fake.detect(&[], 0, 0),
         Some(HeadPose {
             yaw: 5.0,
-            roll: 1.0
+            pitch: 1.0
         }),
     );
     // 空 detector 返回 None

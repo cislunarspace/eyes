@@ -144,7 +144,7 @@ fn badge_colors(pose_state: PoseState) -> (&'static str, &'static str) {
     match pose_state {
         PoseState::FacingScreen => ("#1a4d1a", "#00cc44"),
         PoseState::OffAxisLeft | PoseState::OffAxisRight => ("#4d1a1a", "#ff4444"),
-        PoseState::OffAxisOther => ("#4d3d1a", "#ffaa00"),
+        PoseState::HeadUp | PoseState::HeadDown => ("#4d3d1a", "#ffaa00"),
         PoseState::NoFace => ("#1a1a1a", "#888888"),
     }
 }
@@ -154,7 +154,8 @@ fn badge_text_key(pose_state: PoseState) -> &'static str {
         PoseState::FacingScreen => "badge.facing_screen",
         PoseState::OffAxisLeft => "badge.off_axis_left",
         PoseState::OffAxisRight => "badge.off_axis_right",
-        PoseState::OffAxisOther => "badge.off_axis_other",
+        PoseState::HeadUp => "badge.head_up",
+        PoseState::HeadDown => "badge.head_down",
         PoseState::NoFace => "badge.no_face",
     }
 }

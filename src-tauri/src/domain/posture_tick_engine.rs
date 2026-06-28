@@ -199,7 +199,12 @@ impl PostureTickEngine {
                     });
                 }
             }
-            PoseState::OffAxisOther => {}
+            PoseState::HeadUp | PoseState::HeadDown => {
+                // ponytail: pitch 偏离暂不触发方向警告，仅重置 streak 计时
+                self.off_axis_streak = 0.0;
+                self.repeat_due_at = None;
+                self.last_emit_at = None;
+            }
         }
 
         events

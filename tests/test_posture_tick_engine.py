@@ -127,14 +127,14 @@ class TestOffAxisStreak:
         corrections = [e for e in events if isinstance(e, CorrectionEvent)]
         assert len(corrections) == 1
 
-    def test_off_axis_other_resets_streak(self) -> None:
+    def test_head_up_resets_streak(self) -> None:
         engine = PostureTickEngine(off_axis_streak_threshold_seconds=5.0)
         dt = 1.0
 
         for _ in range(3):
             engine.tick(PoseState.OFF_AXIS_LEFT, dt)
 
-        engine.tick(PoseState.OFF_AXIS_OTHER, dt)
+        engine.tick(PoseState.HEAD_UP, dt)
 
         for _ in range(4):
             events = engine.tick(PoseState.OFF_AXIS_LEFT, dt)
@@ -143,12 +143,12 @@ class TestOffAxisStreak:
         corrections = [e for e in events if isinstance(e, CorrectionEvent)]
         assert len(corrections) == 1
 
-    def test_off_axis_other_never_triggers_correction(self) -> None:
+    def test_head_up_never_triggers_correction(self) -> None:
         engine = PostureTickEngine()
         dt = 1.0
 
         for _ in range(100):
-            events = engine.tick(PoseState.OFF_AXIS_OTHER, dt)
+            events = engine.tick(PoseState.HEAD_UP, dt)
             assert all(not isinstance(e, CorrectionEvent) for e in events)
 
 
@@ -206,7 +206,7 @@ class TestPresenceTime:
         engine.tick(PoseState.FACING_SCREEN, 1.0)
         engine.tick(PoseState.OFF_AXIS_LEFT, 1.0)
         engine.tick(PoseState.OFF_AXIS_RIGHT, 1.0)
-        events = engine.tick(PoseState.OFF_AXIS_OTHER, 1.0)
+        events = engine.tick(PoseState.HEAD_UP, 1.0)
         assert all(not isinstance(e, EyeRestEvent) for e in events)
 
         # After 5 more seconds of presence (total 9s), still no fire
@@ -358,12 +358,12 @@ class TestWarningLevel:
         events = engine.tick(PoseState.FACING_SCREEN, 1.0)
         assert any(isinstance(e, WarningLevelEvent) and e.level == WarningLevel.CORRECTED for e in events)
 
-    def test_off_axis_other_does_not_advance_warning_escalation(self) -> None:
+    def test_head_up_does_not_advance_warning_escalation(self) -> None:
         engine = PostureTickEngine(off_axis_repeat_interval_seconds=10.0)
 
         engine.tick(PoseState.OFF_AXIS_LEFT, 1.0)
         for _ in range(20):
-            events = engine.tick(PoseState.OFF_AXIS_OTHER, 1.0)
+            events = engine.tick(PoseState.HEAD_UP, 1.0)
             assert all(not isinstance(e, WarningLevelEvent) for e in events)
 
         for _ in range(8):

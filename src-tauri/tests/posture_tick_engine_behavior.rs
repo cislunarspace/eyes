@@ -57,7 +57,7 @@ fn non_off_axis_left_right_states_reset_or_skip_correction_streak() {
     assert!(has_correction(&engine.tick(PoseState::OffAxisLeft, 1.0)));
 
     for _ in 0..20 {
-        assert!(!has_correction(&engine.tick(PoseState::OffAxisOther, 1.0)));
+        assert!(!has_correction(&engine.tick(PoseState::HeadUp, 1.0)));
     }
 }
 
@@ -146,12 +146,12 @@ fn warning_does_not_escalate_below_threshold_and_no_face_starts_fresh_episode() 
 }
 
 #[test]
-fn off_axis_other_does_not_advance_warning_escalation() {
+fn head_up_does_not_advance_warning_escalation() {
     let mut engine = PostureTickEngine::new(None, Some(10.0), None, None);
 
     engine.tick(PoseState::OffAxisLeft, 1.0);
     for _ in 0..20 {
-        assert!(engine.tick(PoseState::OffAxisOther, 1.0).is_empty());
+        assert!(engine.tick(PoseState::HeadUp, 1.0).is_empty());
     }
     for _ in 0..8 {
         assert!(!has_warning(

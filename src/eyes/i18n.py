@@ -56,7 +56,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "badge.facing_screen": "头正对",
         "badge.off_axis_left": "头左偏",
         "badge.off_axis_right": "头右偏",
-        "badge.off_axis_other": "头偏转",
+        "badge.head_up": "仰头",
+        "badge.head_down": "低头",
         "badge.no_face": "未检测到人脸",
         # calibration
         "calibration.in_progress": "校准中... {seconds}秒",
@@ -112,7 +113,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "badge.facing_screen": "Facing Screen",
         "badge.off_axis_left": "Turned Left",
         "badge.off_axis_right": "Turned Right",
-        "badge.off_axis_other": "Tilted",
+        "badge.head_up": "Looking Up",
+        "badge.head_down": "Looking Down",
         "badge.no_face": "No Face Detected",
         # calibration
         "calibration.in_progress": "Calibrating... {seconds}s",

@@ -7,7 +7,7 @@ from typing import Optional, Protocol
 
 import numpy as np
 
-from .classifier import HeadPose, NeutralPose, PoseState, Thresholds, classify
+from .classifier import HeadPose, NeutralPose, PoseClassification, PoseState, Thresholds, classify
 from .posture_tick_engine import (
     CorrectionEvent,
     EyeRestEvent,
@@ -63,12 +63,19 @@ class SenseLoop:
             eyest_threshold_seconds=accumulator_config.eyest_threshold_seconds,
         )
         self.current_pose: Optional[HeadPose] = None
-        self.current_state: PoseState = PoseState.NO_FACE
+        self.current_classification: PoseClassification = PoseClassification(
+            PoseState.NO_FACE, PoseState.NO_FACE
+        )
 
     @property
     def accumulator(self) -> PostureTickEngine:
         """Backward-compatible alias for the unified engine."""
         return self.engine
+
+    @property
+    def current_state(self) -> PoseState:
+        """Backward-compatible accessor returning yaw axis state."""
+        return self.current_classification.yaw_state
 
     @property
     def current_yaw(self) -> float | None:
@@ -90,15 +97,17 @@ class SenseLoop:
         """
         if frame is None or self.detector is None:
             self.current_pose = None
-            self.current_state = PoseState.NO_FACE
+            self.current_classification = PoseClassification(
+                PoseState.NO_FACE, PoseState.NO_FACE
+            )
         else:
-            prev = self.current_state
+            prev = self.current_classification
             self.current_pose = self.detector.detect(frame)
-            self.current_state = classify(
+            self.current_classification = classify(
                 self.current_pose,
                 neutral=self.neutral,
                 thresholds=self.thresholds,
-                prev_state=prev,
+                prev_classification=prev,
             )
 
-        return self.engine.tick(self.current_state, dt)
+        return self.engine.tick(self.current_classification.yaw_state, dt)

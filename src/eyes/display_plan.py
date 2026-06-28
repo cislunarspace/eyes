@@ -21,7 +21,8 @@ BADGE_COLORS_BY_POSE: dict[PoseState, tuple[str, str]] = {
     PoseState.FACING_SCREEN: ("#1a4d1a", "#00cc44"),
     PoseState.OFF_AXIS_LEFT: ("#4d1a1a", "#ff4444"),
     PoseState.OFF_AXIS_RIGHT: ("#4d1a1a", "#ff4444"),
-    PoseState.OFF_AXIS_OTHER: ("#4d3d1a", "#ffaa00"),
+    PoseState.HEAD_UP: ("#4d3d1a", "#ffaa00"),
+    PoseState.HEAD_DOWN: ("#4d3d1a", "#ffaa00"),
     PoseState.NO_FACE: ("#1a1a1a", "#888888"),
 }
 
@@ -29,7 +30,8 @@ _BADGE_TEXT_KEY_BY_POSE: dict[PoseState, str] = {
     PoseState.FACING_SCREEN: "badge.facing_screen",
     PoseState.OFF_AXIS_LEFT: "badge.off_axis_left",
     PoseState.OFF_AXIS_RIGHT: "badge.off_axis_right",
-    PoseState.OFF_AXIS_OTHER: "badge.off_axis_other",
+    PoseState.HEAD_UP: "badge.head_up",
+    PoseState.HEAD_DOWN: "badge.head_down",
     PoseState.NO_FACE: "badge.no_face",
 }
 

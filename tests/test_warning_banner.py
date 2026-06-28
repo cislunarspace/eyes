@@ -136,12 +136,12 @@ class TestMainWindowI18n:
         window.set_state(5.0, 0.0, PoseState.OFF_AXIS_RIGHT)
         assert window._badge_label.text() == "Turned Right"
 
-    def test_badge_off_axis_other_in_english(self, qtbot) -> None:
+    def test_badge_head_up_in_english(self, qtbot) -> None:
         set_language("en")
         window = MainWindow()
         qtbot.addWidget(window)
-        window.set_state(0.0, 5.0, PoseState.OFF_AXIS_OTHER)
-        assert window._badge_label.text() == "Tilted"
+        window.set_state(0.0, 5.0, PoseState.HEAD_UP)
+        assert window._badge_label.text() == "Looking Up"
 
     def test_readout_placeholder_in_chinese(self, qtbot) -> None:
         set_language("zh-CN")

@@ -57,7 +57,8 @@ _EXPECTED_KEYS = [
     "badge.facing_screen",
     "badge.off_axis_left",
     "badge.off_axis_right",
-    "badge.off_axis_other",
+    "badge.head_up",
+    "badge.head_down",
     "badge.no_face",
     # calibration
     "calibration.in_progress",
