@@ -29,11 +29,12 @@ pub struct Thresholds {
 
 impl Default for Thresholds {
     fn default() -> Self {
+        use super::defaults;
         Self {
-            yaw_deg: 1.0,
-            yaw_hysteresis_deg: 0.5,
-            pitch_deg: 5.0,
-            pitch_hysteresis_deg: 2.5,
+            yaw_deg: defaults::YAW_DEG,
+            yaw_hysteresis_deg: defaults::YAW_HYSTERESIS_DEG,
+            pitch_deg: defaults::PITCH_DEG,
+            pitch_hysteresis_deg: defaults::PITCH_HYSTERESIS_DEG,
         }
     }
 }

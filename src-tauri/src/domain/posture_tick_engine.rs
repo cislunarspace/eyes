@@ -1,4 +1,5 @@
 use super::classifier::PoseState;
+use super::defaults;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum WarningLevel {
@@ -21,10 +22,7 @@ pub enum SenseEvent {
     },
 }
 
-const DEFAULT_OFF_AXIS_STREAK_THRESHOLD: f64 = 0.3;
-const DEFAULT_OFF_AXIS_REPEAT_INTERVAL: f64 = 10.0;
-const DEFAULT_FACING_THRESHOLD: f64 = 300.0;
-const DEFAULT_EYEREST_THRESHOLD: f64 = 900.0;
+// 默认值已统一到 domain::defaults
 
 fn is_yaw_state(state: PoseState) -> bool {
     matches!(state, PoseState::OffAxisLeft | PoseState::OffAxisRight)
@@ -246,11 +244,11 @@ impl PostureTickEngine {
     ) -> Self {
         Self {
             off_axis_streak_threshold: off_axis_streak_threshold_seconds
-                .unwrap_or(DEFAULT_OFF_AXIS_STREAK_THRESHOLD),
+                .unwrap_or(defaults::OFF_AXIS_STREAK_THRESHOLD),
             off_axis_repeat_interval: off_axis_repeat_interval_seconds
-                .unwrap_or(DEFAULT_OFF_AXIS_REPEAT_INTERVAL),
-            facing_threshold: facing_threshold_seconds.unwrap_or(DEFAULT_FACING_THRESHOLD),
-            eyest_threshold: eyest_threshold_seconds.unwrap_or(DEFAULT_EYEREST_THRESHOLD),
+                .unwrap_or(defaults::OFF_AXIS_REPEAT_INTERVAL),
+            facing_threshold: facing_threshold_seconds.unwrap_or(defaults::FACING_THRESHOLD),
+            eyest_threshold: eyest_threshold_seconds.unwrap_or(defaults::EYEREST_THRESHOLD),
             facing_seconds: 0.0,
             presence_seconds: 0.0,
             snoozed: false,

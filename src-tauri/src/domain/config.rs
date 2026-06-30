@@ -33,6 +33,7 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
+        use super::defaults;
         Self {
             yaw_threshold: 5.0,
             pitch_threshold: 10.0,
@@ -45,10 +46,10 @@ impl Default for AppConfig {
             sound_enabled: true,
             autostart_enabled: false,
             snooze_until_iso: None,
-            off_axis_streak_threshold_seconds: 0.3,
-            off_axis_repeat_interval_seconds: 10.0,
-            facing_threshold_seconds: 300.0,
-            eyest_threshold_seconds: 900.0,
+            off_axis_streak_threshold_seconds: defaults::OFF_AXIS_STREAK_THRESHOLD,
+            off_axis_repeat_interval_seconds: defaults::OFF_AXIS_REPEAT_INTERVAL,
+            facing_threshold_seconds: defaults::FACING_THRESHOLD,
+            eyest_threshold_seconds: defaults::EYEREST_THRESHOLD,
         }
     }
 }
