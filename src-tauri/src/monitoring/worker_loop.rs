@@ -7,7 +7,7 @@ use crate::monitoring::detector::Detector;
 use crate::monitoring::preview::PreviewFrame;
 use crate::monitoring::worker::{FrameSource, MonitoringWorker, WorkerOutput};
 
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 // ── WorkerCommand（从 worker_command 上移到此处） ─────────────────
@@ -96,20 +96,19 @@ pub struct WorkerOrchestrator {
     camera_factory: CameraFactory,
     detector_factory: DetectorFactory,
     monitor_factory: MonitorFactory,
-    event_log: EventLog,
+    event_log: Arc<EventLog>,
 }
 
 impl WorkerOrchestrator {
     pub fn new(
         config: AppConfig,
-        _shared_config: Arc<RwLock<AppConfig>>,
         shared_state: Arc<Mutex<crate::app_state::AppState>>,
         shared_calibration: Arc<Mutex<CalibrationSession>>,
         event_sink: Box<dyn EventSink>,
         camera_factory: CameraFactory,
         detector_factory: DetectorFactory,
         monitor_factory: MonitorFactory,
-        event_log: EventLog,
+        event_log: Arc<EventLog>,
     ) -> Self {
         Self {
             config,
@@ -128,7 +127,7 @@ impl WorkerOrchestrator {
         use crate::app_state::CameraState;
 
         let mut camera_index = self.config.camera_index;
-        let mut snooze_remaining: f64 = 0.0;
+        let mut snooze_until: Option<Instant> = None;
         let mut monitor: Option<Box<dyn Monitor>> = self.open_monitor(camera_index);
 
         // 更新初始摄像头状态
@@ -172,15 +171,22 @@ impl WorkerOrchestrator {
                         self.config = *new_config;
                         monitor.take();
                         monitor = self.open_monitor(camera_index);
+                        if monitor.is_none() {
+                            retry_at = Some(Instant::now() + Duration::from_secs(5));
+                        }
                     }
                     WorkerCommand::Snooze(seconds) => {
-                        snooze_remaining = seconds;
+                        snooze_until = if seconds.is_infinite() {
+                            None // None 表示永久 snooze（无到期时间）
+                        } else {
+                            Some(Instant::now() + Duration::from_secs_f64(seconds))
+                        };
                         if let Some(ref mut w) = monitor {
                             w.set_snoozed(true);
                         }
                     }
                     WorkerCommand::Resume => {
-                        snooze_remaining = 0.0;
+                        snooze_until = None;
                         if let Some(ref mut w) = monitor {
                             w.set_snoozed(false);
                         }
@@ -197,18 +203,14 @@ impl WorkerOrchestrator {
                 }
             }
 
-            self.process_tick(&mut monitor, &mut snooze_remaining, &mut retry_at, camera_index);
+            self.process_tick(&mut monitor, &mut snooze_until, &mut retry_at, camera_index);
         }
-
-        // Stop 后继续处理剩余的 tick（在退出前）
-        // （rx 已关闭，不再读取命令）
-        // 这里直接退出，与原始行为一致。
     }
 
     fn process_tick(
         &mut self,
         monitor: &mut Option<Box<dyn Monitor>>,
-        snooze_remaining: &mut f64,
+        snooze_until: &mut Option<Instant>,
         retry_at: &mut Option<Instant>,
         camera_index: u32,
     ) {
@@ -217,10 +219,9 @@ impl WorkerOrchestrator {
         let now = Instant::now();
 
         // snooze 倒计时
-        if *snooze_remaining > 0.0 && *snooze_remaining < f64::INFINITY {
-            *snooze_remaining -= 0.1;
-            if *snooze_remaining <= 0.0 {
-                *snooze_remaining = 0.0;
+        if let Some(until) = snooze_until {
+            if now >= *until {
+                *snooze_until = None;
                 if let Some(ref mut w) = monitor {
                     w.set_snoozed(false);
                 }
@@ -528,9 +529,8 @@ mod tests {
         let (tx, rx) = channel();
         let config = AppConfig::default();
         let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
 
-        let shared_config: Arc<RwLock<AppConfig>> =
-            Arc::new(RwLock::new(config.clone()));
         let shared_state = Arc::new(Mutex::new(crate::app_state::AppState::new(
             config.clone(),
         )));
@@ -566,17 +566,15 @@ mod tests {
 
         let detector_factory: DetectorFactory = Box::new(|| None);
 
-        let path = dir.into_path();
         let orchestrator = WorkerOrchestrator::new(
             config,
-            shared_config,
             shared_state,
             shared_calibration,
             Box::new(sink),
             camera_factory,
             detector_factory,
             monitor_factory,
-            EventLog::new(path.clone()),
+            Arc::new(EventLog::new(path)),
         );
 
         (orchestrator, tx, rx)

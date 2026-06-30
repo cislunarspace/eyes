@@ -1,7 +1,7 @@
 pub mod worker_command;
 
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::app_shell::desktop::rebuild_tray;
 use crate::app_state::{CameraState, SharedAppState, SharedCalibration, SharedConfig};
@@ -22,6 +22,7 @@ use crate::monitoring::worker_loop::{
 
 struct TauriEventSink {
     app: AppHandle,
+    event_log: Arc<EventLog>,
 }
 
 impl EventSink for TauriEventSink {
@@ -72,14 +73,7 @@ impl EventSink for TauriEventSink {
     }
 
     fn log_event(&self, kind: AppEventKind, data: serde_json::Value) {
-        // EventLog 需要 config_dir，这里用 app path 作为回退
-        let log_dir = self
-            .app
-            .path()
-            .app_config_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let event_log = EventLog::new(log_dir);
-        let _ = event_log.append(kind, data);
+        let _ = self.event_log.append(kind, data);
     }
 
     fn log_info(&self, message: &str) {
@@ -304,7 +298,7 @@ pub fn spawn_worker(
         .unwrap_or_default();
 
     let config_dir = dirs::config_dir().unwrap_or_default();
-    let event_log = EventLog::new(config_dir.clone());
+    let event_log = Arc::new(EventLog::new(config_dir.clone()));
 
     // 相机工厂（feature-gated）
     let camera_factory: CameraFactory = Box::new(move |camera_index: u32| {
@@ -336,10 +330,9 @@ pub fn spawn_worker(
 
     let orchestrator = WorkerOrchestrator::new(
         config,
-        shared_config,
         shared_state,
         shared_calibration,
-        Box::new(TauriEventSink { app: app_handle }),
+        Box::new(TauriEventSink { app: app_handle, event_log: event_log.clone() }),
         camera_factory,
         detector_factory,
         monitor_factory,
@@ -377,23 +370,4 @@ fn load_detector(_app_handle: &AppHandle) -> Option<Box<dyn crate::monitoring::d
 #[cfg(not(feature = "opencv-camera"))]
 fn load_detector(_app_handle: &AppHandle) -> Option<Box<dyn crate::monitoring::detector::Detector>> {
     None
-}
-
-// ── JSONL 写入 ──────────────────────────────────────────────────
-
-use std::io::Write;
-use std::path::PathBuf;
-
-pub fn write_jsonl(
-    config_dir: &str,
-    entry: &serde_json::Value,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from(config_dir).join("posture.jsonl");
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    let line = serde_json::to_string(entry)?;
-    writeln!(file, "{}", line)?;
-    Ok(())
 }
