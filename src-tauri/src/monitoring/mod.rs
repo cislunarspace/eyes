@@ -6,3 +6,4 @@ pub mod opencv_camera;
 pub mod onnx_detector;
 pub mod preview;
 pub mod worker;
+pub mod worker_loop;

@@ -4,8 +4,15 @@ use crate::domain::classifier::{self, PoseClassification, PoseState};
 use crate::domain::posture_tick_engine::{PostureTickEngine, SenseEvent, WarningLevel};
 
 /// 帧来源（摄像头）。
-pub trait FrameSource {
+pub trait FrameSource: Send + 'static {
     fn read_frame(&mut self) -> Result<Option<Frame>, String>;
+}
+
+/// 允许 `Box<dyn FrameSource>` 作为 `FrameSource` 使用。
+impl<S: FrameSource + ?Sized> FrameSource for Box<S> {
+    fn read_frame(&mut self) -> Result<Option<Frame>, String> {
+        (**self).read_frame()
+    }
 }
 
 /// 监控 worker 单次 tick 的输出。
