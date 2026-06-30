@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import zh, { type TranslationKey } from './zh';
 import en from './en';
 
@@ -21,24 +22,21 @@ const I18nContext = createContext<I18nContextValue>({
   t: (key) => key,
 });
 
-export function I18nProvider({
-  initialLang,
-  onLangChange,
-  children,
-}: {
-  initialLang: Lang;
-  onLangChange?: (lang: Lang) => void;
-  children: ReactNode;
-}) {
-  const [lang, setLangState] = useState<Lang>(initialLang);
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [lang, setLangState] = useState<Lang>('zh-CN');
 
-  const setLang = useCallback(
-    (newLang: Lang) => {
-      setLangState(newLang);
-      onLangChange?.(newLang);
-    },
-    [onLangChange],
-  );
+  // 启动时从后端读取语言配置
+  useEffect(() => {
+    invoke<{ language: string }>('get_config')
+      .then((cfg) => {
+        if (cfg.language === 'en') setLangState('en');
+      })
+      .catch(() => {});
+  }, []);
+
+  const setLang = useCallback((newLang: Lang) => {
+    setLangState(newLang);
+  }, []);
 
   const t = useCallback(
     (key: TranslationKey, params?: Record<string, string | number>): string => {

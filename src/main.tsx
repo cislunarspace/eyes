@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useState, useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { I18nProvider, useI18n } from './i18n';
 import type { TranslationKey } from './i18n/zh';
@@ -11,17 +10,7 @@ import './styles.css';
 type View = 'main' | 'settings';
 
 function App() {
-  const [lang, setLang] = useState<'zh-CN' | 'en'>('zh-CN');
   const [view, setView] = useState<View>('main');
-
-  // 启动时从后端读取语言配置
-  useEffect(() => {
-    invoke<{ language: string }>('get_config')
-      .then((cfg) => {
-        if (cfg.language === 'en') setLang('en');
-      })
-      .catch(() => {});
-  }, []);
 
   // 前端设置打开事件（托盘菜单"设置"→ 聚焦窗口，前端自行切换视图）
   useEffect(() => {
@@ -31,12 +20,8 @@ function App() {
     };
   }, []);
 
-  const handleLangChange = useCallback((newLang: 'zh-CN' | 'en') => {
-    setLang(newLang);
-  }, []);
-
   return (
-    <I18nProvider initialLang={lang} onLangChange={handleLangChange}>
+    <I18nProvider>
       {view === 'settings' ? (
         <Settings onBack={() => setView('main')} />
       ) : (
