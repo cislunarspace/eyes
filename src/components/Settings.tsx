@@ -21,9 +21,15 @@ interface AppConfig {
   eyest_threshold_seconds: number;
 }
 
+interface CameraDevice {
+  index: number;
+  name: string;
+}
+
 export function Settings({ onBack }: { onBack: () => void }) {
   const { t, lang, setLang } = useI18n();
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -33,6 +39,12 @@ export function Settings({ onBack }: { onBack: () => void }) {
 
   useEffect(() => {
     invoke<AppConfig>('get_config').then(setConfig).catch(console.error);
+    invoke<CameraDevice[]>('list_cameras')
+      .then(setCameras)
+      .catch((e) => {
+        console.error('枚举摄像头失败:', e);
+        setCameras([]);
+      });
   }, []);
 
   const update = useCallback(
@@ -176,9 +188,19 @@ export function Settings({ onBack }: { onBack: () => void }) {
             value={config.camera_index}
             onChange={(e) => update('camera_index', Number(e.target.value))}
           >
-            <option value={0}>{t('settings.camera_0')}</option>
-            <option value={1}>{t('settings.camera_1')}</option>
-            <option value={2}>{t('settings.camera_2')}</option>
+            {cameras.length > 0 ? (
+              cameras.map((cam) => (
+                <option key={cam.index} value={cam.index}>
+                  {cam.name}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value={0}>{t('settings.camera_0')}</option>
+                <option value={1}>{t('settings.camera_1')}</option>
+                <option value={2}>{t('settings.camera_2')}</option>
+              </>
+            )}
           </select>
         </label>
       </fieldset>

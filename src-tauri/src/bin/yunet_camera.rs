@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         highgui::imshow(window, &frame)?;
 
         let key = highgui::wait_key(1)?;
-        match key & 0xFF {
+        match (key & 0xFF) as u8 {
             // q 或 Esc
             b'q' | 27 => break,
             // s — 截图

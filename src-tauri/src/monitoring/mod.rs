@@ -1,3 +1,4 @@
+pub mod camera_enumerator;
 pub mod detector;
 #[cfg(feature = "opencv-camera")]
 pub mod opencv_camera;

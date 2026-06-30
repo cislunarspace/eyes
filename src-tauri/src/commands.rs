@@ -16,6 +16,7 @@ use crate::domain::event_log::{AppEventKind, EventLog};
 use crate::domain::posture_tick_engine::SenseEvent;
 #[cfg(feature = "opencv-camera")]
 use crate::monitoring::worker::WorkerOutput;
+use crate::monitoring::camera_enumerator;
 
 /// 从 Tauri 资源目录加载 ONNX 检测器。
 ///
@@ -98,6 +99,12 @@ pub fn set_config(
 }
 
 // ── 摄像头 ──────────────────────────────────────────────────────
+
+/// 列出系统中可用的摄像头设备及其名称。
+#[tauri::command]
+pub fn list_cameras() -> Result<Vec<camera_enumerator::CameraDevice>, String> {
+    camera_enumerator::list_cameras()
+}
 
 /// 切换摄像头索引（不持久化，仅影响当前运行）。
 /// 前端保存设置时应使用 `set_config` 整体写入。
@@ -274,7 +281,7 @@ pub fn spawn_worker(
             let mut snooze_remaining: f64 = 0.0;
 
             let mut worker: Option<MonitoringWorker<OpenCvCamera>> =
-                match OpenCvCamera::open(camera_index) {
+                match OpenCvCamera::open(camera_index as i32) {
                     Ok(cam) => {
                         if let Ok(mut s) = shared_state.lock() {
                             s.status.camera_state = CameraState::Available;
@@ -337,7 +344,7 @@ pub fn spawn_worker(
 
                 // 重试摄像头
                 if worker.is_none() && retry_at.is_some_and(|due| tick_start >= due) {
-                    match OpenCvCamera::open(camera_index) {
+                    match OpenCvCamera::open(camera_index as i32) {
                         Ok(cam) => {
                             if let Ok(mut s) = shared_state.lock() {
                                 s.status.camera_state = CameraState::Available;

@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use app_shell::desktop::{create_tray, handle_second_instance, handle_window_event};
 use app_state::AppState;
 use commands::{
-    cancel_calibration, feed_calibration, get_config, get_status, resume, set_camera_index,
-    set_config, snooze, spawn_worker, start_calibration,
+    cancel_calibration, feed_calibration, get_config, get_status, list_cameras, resume,
+    set_camera_index, set_config, snooze, spawn_worker, start_calibration,
 };
 use domain::calibration::CalibrationSession;
 use tauri::Manager;
@@ -75,6 +75,7 @@ pub fn run() {
             get_status,
             get_config,
             set_config,
+            list_cameras,
             set_camera_index,
             snooze,
             resume,
