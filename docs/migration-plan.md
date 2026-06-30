@@ -17,8 +17,10 @@ src-tauri/src/
 │   ├── mod.rs
 │   ├── worker.rs            # WorkerCommand/Event 循环，持有 Camera + Detector + Engine
 │   ├── camera.rs            # OpenCV 采集、重试、BGR 帧
-│   ├── detector.rs          # Detector trait + OnnxDetector 实现
-│   ├── pose.rs              # solvePnP + 正负号约定辅助函数
+│   ├── detector.rs          # Detector trait
+│   ├── linalg3.rs           # 纯 3×3 线性代数（Jacobi SVD）
+│   ├── solve_pnp.rs         # DLT solvePnP + rotation_to_yaw_pitch + MODEL_3D
+│   ├── onnx_detector.rs     # YuNet 检测器实现
 │   └── preview.rs           # 降采样 + JPEG 编码，用于 UI 预览
 ├── domain/
 │   ├── mod.rs
