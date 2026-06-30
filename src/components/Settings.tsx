@@ -2,29 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '../i18n';
 import { Calibration } from './Calibration';
-
-interface AppConfig {
-  yaw_threshold: number;
-  pitch_threshold: number;
-  yaw_hysteresis: number;
-  pitch_hysteresis: number;
-  neutral_yaw: number;
-  neutral_pitch: number;
-  camera_index: number;
-  language: string;
-  sound_enabled: boolean;
-  autostart_enabled: boolean;
-  snooze_until_iso: string | null;
-  off_axis_streak_threshold_seconds: number;
-  off_axis_repeat_interval_seconds: number;
-  facing_threshold_seconds: number;
-  eyest_threshold_seconds: number;
-}
-
-interface CameraDevice {
-  index: number;
-  name: string;
-}
+import type { AppConfig } from '../bindings/AppConfig';
+import type { CameraDevice } from '../bindings/CameraDevice';
 
 export function Settings({ onBack }: { onBack: () => void }) {
   const { t, lang, setLang } = useI18n();

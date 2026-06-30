@@ -8,8 +8,9 @@ use std::{
 ///
 /// `roll` → `pitch` 重命名兼容：serde 同时接受 `roll_threshold` / `neutral_roll` 和
 /// `pitch_threshold` / `neutral_pitch`，序列化始终使用 `pitch` 系列。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(default)]
+#[ts(export, export_to = "../../src/bindings/")]
 pub struct AppConfig {
     pub yaw_threshold: f64,
     #[serde(alias = "roll_threshold")]

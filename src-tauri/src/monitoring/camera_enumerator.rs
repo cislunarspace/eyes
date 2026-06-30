@@ -6,7 +6,8 @@
 use serde::Serialize;
 
 /// 摄像头设备信息。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+#[ts(export, export_to = "../../src/bindings/")]
 pub struct CameraDevice {
     pub index: u32,
     pub name: String,
