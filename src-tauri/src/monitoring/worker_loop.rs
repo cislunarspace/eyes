@@ -1,6 +1,6 @@
 use crate::domain::calibration::CalibrationSession;
 use crate::domain::config::AppConfig;
-use crate::domain::event_log::{AppEventKind, EventLog};
+use crate::domain::event_log::AppEventKind;
 use crate::domain::posture_tick_engine::SenseEvent;
 use crate::domain::snooze;
 use crate::monitoring::detector::Detector;
@@ -44,15 +44,32 @@ pub fn channel() -> (WorkerSender, WorkerReceiver) {
 // 把 Tauri AppHandle 依赖隔离到 trait 背后，让 WorkerOrchestrator
 // 不依赖 Tauri 运行时，可以独立测试。
 
+/// 监控 worker 向外部发射的事件。
+#[derive(Debug, Clone)]
+pub enum MonitoringEvent {
+    CameraStateChanged { state: String },
+    PoseUpdated {
+        yaw: Option<f64>,
+        pitch: Option<f64>,
+        pose_state: String,
+    },
+    PreviewFrame(PreviewFrame),
+    SoundAlert { alert_type: String },
+    WarningLevelChanged {
+        level: String,
+        direction: Option<String>,
+    },
+    LogEvent {
+        kind: AppEventKind,
+        data: serde_json::Value,
+    },
+    LogInfo {
+        message: String,
+    },
+}
+
 pub trait EventSink: Send + 'static {
-    fn emit_camera_state_changed(&self, state: &str);
-    fn emit_pose_updated(&self, yaw: Option<f64>, pitch: Option<f64>, pose_state: &str);
-    fn emit_preview_frame(&self, preview: &PreviewFrame);
-    fn emit_sound_alert(&self, alert_type: &str);
-    fn emit_warning_level_changed(&self, level: &str, direction: Option<&str>);
-    fn show_dialog(&self, title: &str, body: &str);
-    fn log_event(&self, kind: AppEventKind, data: serde_json::Value);
-    fn log_info(&self, message: &str);
+    fn emit(&self, event: MonitoringEvent);
 }
 
 // ── 监控器抽象 ───────────────────────────────────────────────────
@@ -96,7 +113,6 @@ pub struct WorkerOrchestrator {
     camera_factory: CameraFactory,
     detector_factory: DetectorFactory,
     monitor_factory: MonitorFactory,
-    event_log: Arc<EventLog>,
 }
 
 impl WorkerOrchestrator {
@@ -108,7 +124,6 @@ impl WorkerOrchestrator {
         camera_factory: CameraFactory,
         detector_factory: DetectorFactory,
         monitor_factory: MonitorFactory,
-        event_log: Arc<EventLog>,
     ) -> Self {
         Self {
             config,
@@ -118,7 +133,6 @@ impl WorkerOrchestrator {
             camera_factory,
             detector_factory,
             monitor_factory,
-            event_log,
         }
     }
 
@@ -269,7 +283,9 @@ impl WorkerOrchestrator {
             }
 
             // 事件输出
-            emit_tick_output(&*self.event_sink, &self.event_log, &output);
+            for event in Vec::<MonitoringEvent>::from(&output) {
+                self.event_sink.emit(event);
+            }
 
             if !output.camera_ok {
                 monitor.take();
@@ -287,68 +303,109 @@ impl WorkerOrchestrator {
 
 // ── 事件输出 ─────────────────────────────────────────────────────
 
-fn emit_tick_output(sink: &dyn EventSink, log: &EventLog, output: &WorkerOutput) {
-    if let Some(ref preview) = output.preview {
-        sink.emit_preview_frame(preview);
-    }
+impl From<&WorkerOutput> for Vec<MonitoringEvent> {
+    fn from(output: &WorkerOutput) -> Self {
+        let mut events = Vec::new();
 
-    if !output.camera_ok {
-        sink.emit_camera_state_changed("unavailable");
-        sink.log_event(AppEventKind::CameraUnavailable, serde_json::json!({}));
-        return;
-    }
+        if let Some(ref preview) = output.preview {
+            events.push(MonitoringEvent::PreviewFrame(preview.clone()));
+        }
 
-    let pose_str = format!("{:?}", output.pose_state);
-    sink.emit_pose_updated(output.yaw, output.pitch, &pose_str);
+        if !output.camera_ok {
+            events.push(MonitoringEvent::CameraStateChanged {
+                state: "unavailable".into(),
+            });
+            events.push(MonitoringEvent::LogEvent {
+                kind: AppEventKind::CameraUnavailable,
+                data: serde_json::json!({}),
+            });
+            return events;
+        }
 
-    for event in &output.sense_events {
-        emit_sense_event(sink, log, event);
+        let pose_str = format!("{:?}", output.pose_state);
+        events.push(MonitoringEvent::PoseUpdated {
+            yaw: output.yaw,
+            pitch: output.pitch,
+            pose_state: pose_str,
+        });
+
+        for event in &output.sense_events {
+            events.extend(Vec::<MonitoringEvent>::from(event));
+        }
+
+        events
     }
 }
 
-fn emit_sense_event(sink: &dyn EventSink, _log: &EventLog, event: &SenseEvent) {
-    use crate::domain::classifier::PoseState;
-    match event {
-        SenseEvent::Correction { direction } => {
-            let dir = match *direction {
-                PoseState::OffAxisLeft => "left",
-                PoseState::OffAxisRight => "right",
-                PoseState::HeadUp => "up",
-                PoseState::HeadDown => "down",
-                _ => "unknown",
-            };
-            sink.emit_warning_level_changed("correction", Some(dir));
-            sink.emit_sound_alert("posture");
-            sink.log_event(
-                AppEventKind::PromptFired,
-                serde_json::json!({ "prompt": "correction", "direction": dir }),
-            );
-        }
-        SenseEvent::GoodPosture => {
-            sink.emit_warning_level_changed("good_posture", None);
-            sink.log_event(
-                AppEventKind::PromptFired,
-                serde_json::json!({ "prompt": "good_posture" }),
-            );
-        }
-        SenseEvent::EyeRest => {
-            sink.emit_warning_level_changed("eye_rest", None);
-            sink.emit_sound_alert("eyerest");
-            sink.log_event(
-                AppEventKind::PromptFired,
-                serde_json::json!({ "prompt": "eye_rest" }),
-            );
-        }
-        SenseEvent::WarningLevelChanged { level, direction } => {
-            let level_str = format!("{:?}", level);
-            sink.emit_warning_level_changed(&level_str, direction.as_deref());
-            sink.log_event(
-                AppEventKind::WarningLevelChanged,
-                serde_json::json!({
-                    "level": level_str,
-                    "direction": direction,
-                }),
-            );
+impl From<&SenseEvent> for Vec<MonitoringEvent> {
+    fn from(event: &SenseEvent) -> Self {
+        use crate::domain::classifier::PoseState;
+        match event {
+            SenseEvent::Correction { direction } => {
+                let dir = match *direction {
+                    PoseState::OffAxisLeft => "left",
+                    PoseState::OffAxisRight => "right",
+                    PoseState::HeadUp => "up",
+                    PoseState::HeadDown => "down",
+                    _ => "unknown",
+                };
+                vec![
+                    MonitoringEvent::WarningLevelChanged {
+                        level: "correction".into(),
+                        direction: Some(dir.into()),
+                    },
+                    MonitoringEvent::SoundAlert {
+                        alert_type: "posture".into(),
+                    },
+                    MonitoringEvent::LogEvent {
+                        kind: AppEventKind::PromptFired,
+                        data: serde_json::json!({ "prompt": "correction", "direction": dir }),
+                    },
+                ]
+            }
+            SenseEvent::GoodPosture => {
+                vec![
+                    MonitoringEvent::WarningLevelChanged {
+                        level: "good_posture".into(),
+                        direction: None,
+                    },
+                    MonitoringEvent::LogEvent {
+                        kind: AppEventKind::PromptFired,
+                        data: serde_json::json!({ "prompt": "good_posture" }),
+                    },
+                ]
+            }
+            SenseEvent::EyeRest => {
+                vec![
+                    MonitoringEvent::WarningLevelChanged {
+                        level: "eye_rest".into(),
+                        direction: None,
+                    },
+                    MonitoringEvent::SoundAlert {
+                        alert_type: "eyerest".into(),
+                    },
+                    MonitoringEvent::LogEvent {
+                        kind: AppEventKind::PromptFired,
+                        data: serde_json::json!({ "prompt": "eye_rest" }),
+                    },
+                ]
+            }
+            SenseEvent::WarningLevelChanged { level, direction } => {
+                let level_str = format!("{:?}", level);
+                vec![
+                    MonitoringEvent::WarningLevelChanged {
+                        level: level_str.clone(),
+                        direction: direction.clone(),
+                    },
+                    MonitoringEvent::LogEvent {
+                        kind: AppEventKind::WarningLevelChanged,
+                        data: serde_json::json!({
+                            "level": level_str,
+                            "direction": direction,
+                        }),
+                    },
+                ]
+            }
         }
     }
 }
@@ -434,49 +491,19 @@ mod tests {
     }
 
     impl EventSink for MockSink {
-        fn emit_camera_state_changed(&self, state: &str) {
-            self.events.lock().unwrap().push(format!("camera:{}", state));
-        }
-
-        fn emit_pose_updated(&self, _yaw: Option<f64>, _pitch: Option<f64>, pose_state: &str) {
-            self.events
-                .lock()
-                .unwrap()
-                .push(format!("pose:{}", pose_state));
-        }
-
-        fn emit_preview_frame(&self, _preview: &PreviewFrame) {
-            self.events.lock().unwrap().push("preview".into());
-        }
-
-        fn emit_sound_alert(&self, alert_type: &str) {
-            self.events
-                .lock()
-                .unwrap()
-                .push(format!("sound:{}", alert_type));
-        }
-
-        fn emit_warning_level_changed(&self, level: &str, direction: Option<&str>) {
-            self.events.lock().unwrap().push(format!(
-                "warning:{}:{}",
-                level,
-                direction.unwrap_or("none")
-            ));
-        }
-
-        fn show_dialog(&self, title: &str, _body: &str) {
-            self.events.lock().unwrap().push(format!("dialog:{}", title));
-        }
-
-        fn log_event(&self, kind: AppEventKind, _data: serde_json::Value) {
-            self.events
-                .lock()
-                .unwrap()
-                .push(format!("log:{:?}", kind));
-        }
-
-        fn log_info(&self, message: &str) {
-            self.events.lock().unwrap().push(format!("info:{}", message));
+        fn emit(&self, event: MonitoringEvent) {
+            let s = match event {
+                MonitoringEvent::CameraStateChanged { state } => format!("camera:{}", state),
+                MonitoringEvent::PoseUpdated { pose_state, .. } => format!("pose:{}", pose_state),
+                MonitoringEvent::PreviewFrame(_) => "preview".into(),
+                MonitoringEvent::SoundAlert { alert_type } => format!("sound:{}", alert_type),
+                MonitoringEvent::WarningLevelChanged { level, direction } => {
+                    format!("warning:{}:{}", level, direction.unwrap_or_else(|| "none".into()))
+                }
+                MonitoringEvent::LogEvent { kind, .. } => format!("log:{:?}", kind),
+                MonitoringEvent::LogInfo { message } => format!("info:{}", message),
+            };
+            self.events.lock().unwrap().push(s);
         }
     }
 
@@ -528,8 +555,6 @@ mod tests {
     ) -> (WorkerOrchestrator, WorkerSender, WorkerReceiver) {
         let (tx, rx) = channel();
         let config = AppConfig::default();
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().to_path_buf();
 
         let shared_state = Arc::new(Mutex::new(crate::app_state::AppState::new(
             config.clone(),
@@ -574,7 +599,6 @@ mod tests {
             camera_factory,
             detector_factory,
             monitor_factory,
-            Arc::new(EventLog::new(path)),
         );
 
         (orchestrator, tx, rx)
@@ -738,5 +762,54 @@ mod tests {
     fn worker_command_is_debug() {
         let cmd = WorkerCommand::Stop;
         let _ = format!("{:?}", cmd);
+    }
+
+    #[test]
+    fn worker_output_to_events_pose_only() {
+        let events = Vec::<MonitoringEvent>::from(&good_output());
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0],
+            MonitoringEvent::PoseUpdated {
+                pose_state: ref ps,
+                ..
+            }
+            if ps == "FacingScreen"
+        ));
+    }
+
+    #[test]
+    fn worker_output_to_events_camera_unavailable() {
+        let events = Vec::<MonitoringEvent>::from(&camera_fail_output());
+        assert!(events.iter().any(|e| matches!(
+            e,
+            MonitoringEvent::CameraStateChanged { ref state } if state == "unavailable"
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            MonitoringEvent::LogEvent { ref kind, .. } if *kind == AppEventKind::CameraUnavailable
+        )));
+    }
+
+    #[test]
+    fn sense_event_correction_to_events() {
+        let events = Vec::<MonitoringEvent>::from(
+            &SenseEvent::Correction {
+                direction: PoseState::OffAxisLeft,
+            },
+        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            MonitoringEvent::WarningLevelChanged { ref level, ref direction }
+            if level == "correction" && direction.as_deref() == Some("left")
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            MonitoringEvent::SoundAlert { ref alert_type } if alert_type == "posture"
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            MonitoringEvent::LogEvent { ref kind, .. } if *kind == AppEventKind::PromptFired
+        )));
     }
 }

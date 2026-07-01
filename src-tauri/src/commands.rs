@@ -8,14 +8,13 @@ use crate::app_state::{CameraState, SharedAppState, SharedCalibration, SharedCon
 use crate::commands::worker_command::{WorkerCommand, WorkerSender};
 use crate::domain::calibration::CalibrationSession;
 use crate::domain::config::{AppConfig, ConfigStore};
-use crate::domain::event_log::{AppEventKind, EventLog};
+use crate::domain::event_log::EventLog;
 use crate::domain::snooze;
 use crate::domain::posture_tick_engine::PostureTickEngine;
 use crate::monitoring::camera_enumerator;
-use crate::monitoring::preview::PreviewFrame;
 use crate::monitoring::worker::{MonitoringWorker};
 use crate::monitoring::worker_loop::{
-    CameraFactory, DetectorFactory, EventSink, MonitorFactory, WorkerOrchestrator,
+    CameraFactory, DetectorFactory, EventSink, MonitoringEvent, MonitorFactory, WorkerOrchestrator,
 };
 
 // ── Tauri EventSink ──────────────────────────────────────────────
@@ -26,59 +25,53 @@ struct TauriEventSink {
 }
 
 impl EventSink for TauriEventSink {
-    fn emit_camera_state_changed(&self, state: &str) {
-        let _ = self.app.emit(
-            "camera-state-changed",
-            serde_json::json!({ "state": state }),
-        );
-    }
-
-    fn emit_pose_updated(&self, yaw: Option<f64>, pitch: Option<f64>, pose_state: &str) {
-        let _ = self.app.emit(
-            "pose-updated",
-            serde_json::json!({
-                "pose_state": pose_state,
-                "yaw": yaw,
-                "pitch": pitch,
-            }),
-        );
-    }
-
-    fn emit_preview_frame(&self, preview: &PreviewFrame) {
-        let _ = self.app.emit(
-            "preview-frame",
-            serde_json::json!({
-                "image_data_url": preview.image_data_url,
-                "width": preview.width,
-                "height": preview.height,
-            }),
-        );
-    }
-
-    fn emit_sound_alert(&self, alert_type: &str) {
-        let _ = self.app.emit("play-sound-alert", alert_type);
-    }
-
-    fn emit_warning_level_changed(&self, level: &str, direction: Option<&str>) {
-        let _ = self.app.emit(
-            "warning-level-changed",
-            serde_json::json!({ "level": level, "direction": direction }),
-        );
-    }
-
-    fn show_dialog(&self, title: &str, body: &str) {
-        // 简化实现：通过 Tauri 对话框 API 显示消息
-        // TODO: 使用 tauri-plugin-dialog 或自定义窗口实现
-        let _ = (title, body);
-    }
-
-    fn log_event(&self, kind: AppEventKind, data: serde_json::Value) {
-        let _ = self.event_log.append(kind, data);
-    }
-
-    fn log_info(&self, message: &str) {
-        // 使用 eprintln 避免依赖 log crate
-        eprintln!("[eyes] {}", message);
+    fn emit(&self, event: MonitoringEvent) {
+        match event {
+            MonitoringEvent::CameraStateChanged { state } => {
+                let _ = self
+                    .app
+                    .emit("camera-state-changed", serde_json::json!({ "state": state }));
+            }
+            MonitoringEvent::PoseUpdated {
+                yaw,
+                pitch,
+                pose_state,
+            } => {
+                let _ = self.app.emit(
+                    "pose-updated",
+                    serde_json::json!({
+                        "pose_state": pose_state,
+                        "yaw": yaw,
+                        "pitch": pitch,
+                    }),
+                );
+            }
+            MonitoringEvent::PreviewFrame(preview) => {
+                let _ = self.app.emit(
+                    "preview-frame",
+                    serde_json::json!({
+                        "image_data_url": preview.image_data_url,
+                        "width": preview.width,
+                        "height": preview.height,
+                    }),
+                );
+            }
+            MonitoringEvent::SoundAlert { alert_type } => {
+                let _ = self.app.emit("play-sound-alert", alert_type);
+            }
+            MonitoringEvent::WarningLevelChanged { level, direction } => {
+                let _ = self.app.emit(
+                    "warning-level-changed",
+                    serde_json::json!({ "level": level, "direction": direction }),
+                );
+            }
+            MonitoringEvent::LogEvent { kind, data } => {
+                let _ = self.event_log.append(kind, data);
+            }
+            MonitoringEvent::LogInfo { message } => {
+                eprintln!("[eyes] {}", message);
+            }
+        }
     }
 }
 
@@ -336,7 +329,6 @@ pub fn spawn_worker(
         camera_factory,
         detector_factory,
         monitor_factory,
-        event_log,
     );
 
     std::thread::spawn(move || {
