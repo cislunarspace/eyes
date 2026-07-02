@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
     path::{Path, PathBuf},
+    sync::{mpsc, Mutex},
 };
 
 /// 应用配置，与 Python 端 AppConfig 共享同一份 config.yaml。
@@ -111,6 +112,69 @@ impl ConfigStore {
     }
 }
 
+// ── ConfigState ────────────────────────────────────────────────────
+
+/// 配置的唯一数据源。拥有持久化逻辑和变更通知。
+///
+/// 调用方不持有自己的 `AppConfig` 副本，全部通过 `get()` 读取。
+/// `set()` / `update()` 原子地写入内存和磁盘，然后通知所有订阅者。
+pub struct ConfigState {
+    inner: Mutex<AppConfig>,
+    store: ConfigStore,
+    subscribers: Mutex<Vec<mpsc::Sender<AppConfig>>>,
+}
+
+impl ConfigState {
+    pub fn new(store: ConfigStore) -> io::Result<Self> {
+        let config = store.load()?;
+        Ok(Self {
+            inner: Mutex::new(config),
+            store,
+            subscribers: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// 读取当前配置（克隆）。
+    pub fn get(&self) -> AppConfig {
+        self.inner.lock().unwrap().clone()
+    }
+
+    /// 整体替换配置，持久化到磁盘并通知订阅者。
+    pub fn set(&self, config: AppConfig) -> io::Result<()> {
+        self.store.save(&config)?;
+        {
+            let mut inner = self.inner.lock().unwrap();
+            *inner = config;
+        }
+        self.notify();
+        Ok(())
+    }
+
+    /// 原地修改配置，持久化到磁盘并通知订阅者。
+    pub fn update(&self, patch: impl FnOnce(&mut AppConfig)) -> io::Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        patch(&mut inner);
+        self.store.save(&inner)?;
+        drop(inner);
+        self.notify();
+        Ok(())
+    }
+
+    /// 订阅配置变更通知。返回的 receiver 会在每次 `set()` 或 `update()` 后收到新配置。
+    pub fn subscribe(&self) -> mpsc::Receiver<AppConfig> {
+        let (tx, rx) = mpsc::channel();
+        let mut subs = self.subscribers.lock().unwrap();
+        subs.push(tx);
+        rx
+    }
+
+    fn notify(&self) {
+        let config = self.inner.lock().unwrap().clone();
+        let mut subs = self.subscribers.lock().unwrap();
+        subs.retain(|tx| tx.send(config.clone()).is_ok());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +258,107 @@ neutral_pitch: -1.5
         let config = result.unwrap();
         assert_eq!(config.yaw_threshold, 7.0);
         assert_eq!(config.pitch_threshold, 10.0);
+    }
+
+    // ── ConfigState 测试 ─────────────────────────────────────────────
+
+    #[test]
+    fn config_state_get_returns_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ConfigState::new(ConfigStore::new(dir.path())).unwrap();
+        let config = state.get();
+        assert_eq!(config.yaw_threshold, 5.0);
+        assert_eq!(config.language, "zh-CN");
+    }
+
+    #[test]
+    fn config_state_set_persists_to_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ConfigState::new(ConfigStore::new(dir.path())).unwrap();
+
+        let mut new_config = AppConfig::default();
+        new_config.yaw_threshold = 15.0;
+        new_config.language = "en".to_string();
+        state.set(new_config).unwrap();
+
+        // 从磁盘重新加载验证
+        let store = ConfigStore::new(dir.path());
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.yaw_threshold, 15.0);
+        assert_eq!(loaded.language, "en");
+
+        // get() 也应返回新值
+        assert_eq!(state.get().yaw_threshold, 15.0);
+    }
+
+    #[test]
+    fn config_state_update_patches_and_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ConfigState::new(ConfigStore::new(dir.path())).unwrap();
+
+        state.update(|cfg| {
+            cfg.camera_index = 3;
+            cfg.sound_enabled = false;
+        }).unwrap();
+
+        let config = state.get();
+        assert_eq!(config.camera_index, 3);
+        assert!(!config.sound_enabled);
+        assert_eq!(config.yaw_threshold, 5.0); // 其他字段不变
+
+        // 磁盘验证
+        let store = ConfigStore::new(dir.path());
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.camera_index, 3);
+    }
+
+    #[test]
+    fn config_state_subscribe_receives_notifications() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ConfigState::new(ConfigStore::new(dir.path())).unwrap();
+
+        let rx = state.subscribe();
+
+        // set 通知
+        let mut cfg = AppConfig::default();
+        cfg.yaw_threshold = 20.0;
+        state.set(cfg).unwrap();
+
+        let received = rx.recv().unwrap();
+        assert_eq!(received.yaw_threshold, 20.0);
+
+        // update 也通知
+        state.update(|c| c.camera_index = 5).unwrap();
+        let received = rx.recv().unwrap();
+        assert_eq!(received.camera_index, 5);
+    }
+
+    #[test]
+    fn config_state_subscribe_multiple_subscribers() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ConfigState::new(ConfigStore::new(dir.path())).unwrap();
+
+        let rx1 = state.subscribe();
+        let rx2 = state.subscribe();
+
+        let mut cfg = AppConfig::default();
+        cfg.yaw_threshold = 42.0;
+        state.set(cfg).unwrap();
+
+        assert_eq!(rx1.recv().unwrap().yaw_threshold, 42.0);
+        assert_eq!(rx2.recv().unwrap().yaw_threshold, 42.0);
+    }
+
+    #[test]
+    fn config_state_dropped_subscriber_is_cleaned_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ConfigState::new(ConfigStore::new(dir.path())).unwrap();
+
+        let rx = state.subscribe();
+        drop(rx); // 订阅者断开
+
+        // 不应 panic，静默清理
+        state.update(|c| c.yaw_threshold = 1.0).unwrap();
+        assert_eq!(state.get().yaw_threshold, 1.0);
     }
 }

@@ -269,6 +269,20 @@ impl PostureTickEngine {
         self.snoozed = false;
     }
 
+    /// 更新时机相关阈值，保留所有累加状态。
+    pub fn update_timing(
+        &mut self,
+        off_axis_streak_threshold: f64,
+        off_axis_repeat_interval: f64,
+        facing_threshold: f64,
+        eyest_threshold: f64,
+    ) {
+        self.off_axis_streak_threshold = off_axis_streak_threshold;
+        self.off_axis_repeat_interval = off_axis_repeat_interval;
+        self.facing_threshold = facing_threshold;
+        self.eyest_threshold = eyest_threshold;
+    }
+
     /// 当前综合警告级别（取两轴中更严重者）。
     pub fn warning_level(&self) -> WarningLevel {
         match (self.yaw_oa.warning_level, self.pitch_oa.warning_level) {
@@ -332,5 +346,62 @@ impl PostureTickEngine {
         }
 
         events
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_timing_preserves_accumulated_state() {
+        let mut engine = PostureTickEngine::new(Some(0.3), Some(10.0), Some(300.0), Some(900.0));
+
+        // 累积一些 facing_seconds
+        for _ in 0..10 {
+            engine.tick(PoseState::FacingScreen, PoseState::FacingScreen, 0.1);
+        }
+        // facing_seconds ≈ 1.0
+        assert!(engine.facing_seconds > 0.5);
+
+        // 累积一些 presence_seconds
+        for _ in 0..5 {
+            engine.tick(PoseState::OffAxisRight, PoseState::FacingScreen, 0.1);
+        }
+        // presence_seconds ≈ 1.0 + 前面的
+        assert!(engine.presence_seconds > 0.5);
+
+        let prev_facing = engine.facing_seconds;
+        let prev_presence = engine.presence_seconds;
+
+        // 更新阈值
+        engine.update_timing(1.0, 30.0, 600.0, 1800.0);
+
+        // 累加状态不变
+        assert_eq!(engine.facing_seconds, prev_facing);
+        assert_eq!(engine.presence_seconds, prev_presence);
+
+        // 新阈值已生效（通过后续 tick 行为验证）
+        assert_eq!(engine.off_axis_streak_threshold, 1.0);
+        assert_eq!(engine.off_axis_repeat_interval, 30.0);
+        assert_eq!(engine.facing_threshold, 600.0);
+        assert_eq!(engine.eyest_threshold, 1800.0);
+    }
+
+    #[test]
+    fn update_timing_does_not_reset_warning_state() {
+        let mut engine = PostureTickEngine::new(Some(0.1), Some(10.0), Some(300.0), Some(900.0));
+
+        // 触发 Warning 状态
+        for _ in 0..5 {
+            engine.tick(PoseState::OffAxisRight, PoseState::FacingScreen, 0.1);
+        }
+        assert_eq!(engine.warning_level(), WarningLevel::Warning);
+
+        // 更新阈值
+        engine.update_timing(0.5, 5.0, 100.0, 500.0);
+
+        // 警告状态不变
+        assert_eq!(engine.warning_level(), WarningLevel::Warning);
     }
 }

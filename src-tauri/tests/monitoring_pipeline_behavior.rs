@@ -7,8 +7,10 @@
 //! 4. Pitch 轴 Correction
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 use eyes_lib::domain::classifier::{HeadPose, PoseState};
+use eyes_lib::domain::config::{ConfigState, ConfigStore};
 use eyes_lib::domain::posture_tick_engine::{PostureTickEngine, SenseEvent, WarningLevel};
 use eyes_lib::monitoring::detector::Detector;
 use eyes_lib::monitoring::preview::Frame;
@@ -109,10 +111,17 @@ fn default_engine() -> PostureTickEngine {
     )
 }
 
+fn default_config_state() -> Arc<ConfigState> {
+    let dir = tempfile::tempdir().unwrap();
+    // 为避免 tempdir 被 drop，泄漏它（测试进程退出时回收）
+    let path = dir.into_path();
+    Arc::new(ConfigState::new(ConfigStore::new(&path)).unwrap())
+}
+
 fn make_worker(yaw: f64, pitch: f64) -> MonitoringWorker<FakeCamera> {
     let active = Box::leak(Box::new(AtomicBool::new(true)));
     let detector = Box::new(FakeDetector::new(yaw, pitch, active));
-    MonitoringWorker::new(FakeCamera, Some(detector as Box<dyn Detector>), default_engine())
+    MonitoringWorker::new(FakeCamera, Some(detector as Box<dyn Detector>), default_engine(), default_config_state())
 }
 
 fn make_worker_with_engine(
@@ -122,7 +131,7 @@ fn make_worker_with_engine(
 ) -> (MonitoringWorker<FakeCamera>, &'static AtomicBool) {
     let active = Box::leak(Box::new(AtomicBool::new(true)));
     let detector = Box::new(FakeDetector::new(yaw, pitch, active));
-    let worker = MonitoringWorker::new(FakeCamera, Some(detector as Box<dyn Detector>), engine);
+    let worker = MonitoringWorker::new(FakeCamera, Some(detector as Box<dyn Detector>), engine, default_config_state());
     (worker, active)
 }
 

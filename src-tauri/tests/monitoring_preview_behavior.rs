@@ -1,10 +1,17 @@
 use eyes_lib::domain::classifier::HeadPose;
+use eyes_lib::domain::config::{ConfigState, ConfigStore};
 use eyes_lib::monitoring::{
     detector::Detector,
     preview::Frame,
     worker::{FrameSource, MonitoringWorker},
 };
 use std::sync::{Arc, Mutex};
+
+fn default_config_state() -> Arc<ConfigState> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.into_path();
+    Arc::new(ConfigState::new(ConfigStore::new(&path)).unwrap())
+}
 
 #[derive(Debug)]
 struct FakeCamera {
@@ -22,7 +29,7 @@ fn worker_tick_returns_preview_frame_from_camera_source() {
     let frame = Frame::rgb(2, 1, vec![255, 0, 0, 0, 255, 0]).unwrap();
     let mut worker = MonitoringWorker::new(FakeCamera {
         frames: vec![frame],
-    }, None, Default::default());
+    }, None, Default::default(), default_config_state());
 
     let output = worker.tick(0.1);
 
@@ -48,7 +55,7 @@ fn worker_tick_reports_camera_unavailable_without_crashing() {
         }
     }
 
-    let mut worker = MonitoringWorker::new(UnavailableCamera, None, Default::default());
+    let mut worker = MonitoringWorker::new(UnavailableCamera, None, Default::default(), default_config_state());
     let output = worker.tick(0.1);
 
     assert!(!output.camera_ok);
@@ -72,7 +79,7 @@ fn worker_reports_camera_unavailable_when_read_fails_after_success() {
         }
     }
 
-    let mut worker = MonitoringWorker::new(FailingAfterOne { remaining: 1 }, None, Default::default());
+    let mut worker = MonitoringWorker::new(FailingAfterOne { remaining: 1 }, None, Default::default(), default_config_state());
 
     let output = worker.tick(0.1);
     assert!(output.camera_ok);
@@ -129,6 +136,7 @@ fn preview_is_mirrored_relative_to_detection_frame() {
         FakeCamera { frames: vec![frame] },
         det,
         Default::default(),
+        default_config_state(),
     );
 
     let output = worker.tick(0.1);
@@ -156,6 +164,7 @@ fn original_frame_rgb_not_mutated_by_tick() {
         FakeCamera { frames: vec![frame.clone()] },
         None,
         Default::default(),
+        default_config_state(),
     );
 
     let _output = worker.tick(0.1);

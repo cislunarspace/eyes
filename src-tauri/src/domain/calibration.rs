@@ -115,3 +115,66 @@ impl CalibrationSession {
         })
     }
 }
+
+/// 喂入一个校准样本并推进 0.1 秒倒计时。
+///
+/// 如果会话仍在进行中，返回 `None`；校准结束时返回结果。
+/// 对非活跃会话不做任何操作。
+pub fn feed_calibration_sample(
+    session: &mut CalibrationSession,
+    yaw: f64,
+    pitch: f64,
+) -> Option<CalibrationResult> {
+    if !session.is_active() {
+        return None;
+    }
+    session.feed(yaw, pitch);
+    session.tick(0.1);
+    if session.is_active() {
+        None
+    } else {
+        session.result()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feed_calibration_sample_returns_none_while_active() {
+        let mut session = CalibrationSession::new(1.0);
+        session.start();
+
+        // 1 秒倒计时，每 tick 0.1 秒，前 9 次仍在进行中
+        for _ in 0..9 {
+            assert!(feed_calibration_sample(&mut session, 3.0, 5.0).is_none());
+        }
+        assert!(session.is_active());
+        assert_eq!(session.sample_count(), 9);
+    }
+
+    #[test]
+    fn feed_calibration_sample_returns_result_when_finished() {
+        let mut session = CalibrationSession::new(1.0);
+        session.start();
+
+        // 第 10 次 tick 使倒计时归零
+        for _ in 0..9 {
+            feed_calibration_sample(&mut session, 3.0, 5.0);
+        }
+        let result = feed_calibration_sample(&mut session, 7.0, 9.0);
+        let result = result.expect("校准应已完成");
+        assert_eq!(result.sample_count, 10);
+        // 所有样本 yaw=3.0 但最后一次 yaw=7.0，中位数为 3.0
+        assert!((result.yaw - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn feed_calibration_sample_ignores_inactive_session() {
+        let mut session = CalibrationSession::new(1.0);
+        // 未 start，直接调用
+        assert!(feed_calibration_sample(&mut session, 1.0, 2.0).is_none());
+        assert_eq!(session.sample_count(), 0);
+    }
+}

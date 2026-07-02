@@ -12,4 +12,11 @@ pub mod solve_pnp;
 #[cfg(target_os = "windows")]
 pub mod win32;
 pub mod worker;
-pub mod worker_loop;
+pub mod channel;
+pub mod event_mapping;
+pub mod events;
+pub mod orchestrator;
+// 向后兼容：re-export 全部公开接口
+pub use channel::{channel, WorkerCommand, WorkerReceiver, WorkerSender};
+pub use events::{EventSink, MonitoringEvent};
+pub use orchestrator::{CameraFactory, DetectorFactory, Monitor, MonitorFactory, WorkerOrchestrator};

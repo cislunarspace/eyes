@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use super::detector::Detector;
 use super::preview::{encode_preview, Frame, PreviewFrame};
-use crate::domain::classifier::{self, PoseClassification, PoseState};
+use crate::domain::classifier::{self, NeutralPose, PoseClassification, PoseState, Thresholds};
+use crate::domain::config::ConfigState;
 use crate::domain::posture_tick_engine::{PostureTickEngine, SenseEvent, WarningLevel};
 
 /// 帧来源（摄像头）。
@@ -39,6 +42,7 @@ pub struct MonitoringWorker<C> {
     camera: C,
     detector: Option<Box<dyn Detector>>,
     engine: PostureTickEngine,
+    config_state: Arc<ConfigState>,
     state: WorkerState,
     snoozed: bool,
 }
@@ -48,16 +52,22 @@ impl<C: FrameSource> MonitoringWorker<C> {
         camera: C,
         detector: Option<Box<dyn Detector>>,
         engine: PostureTickEngine,
+        config_state: Arc<ConfigState>,
     ) -> Self {
         Self {
             camera,
             detector,
             engine,
+            config_state,
             state: WorkerState {
                 prev_classification: PoseClassification::default(),
             },
             snoozed: false,
         }
+    }
+
+    pub fn engine_mut(&mut self) -> &mut PostureTickEngine {
+        &mut self.engine
     }
 
     pub fn set_snoozed(&mut self, snoozed: bool) {
@@ -80,10 +90,21 @@ impl<C: FrameSource> MonitoringWorker<C> {
             .and_then(|d| d.detect(&frame.rgb, width, height));
 
         // 分类
+        let config = self.config_state.get();
+        let thresholds = Thresholds {
+            yaw_deg: config.yaw_threshold,
+            yaw_hysteresis_deg: config.yaw_hysteresis,
+            pitch_deg: config.pitch_threshold,
+            pitch_hysteresis_deg: config.pitch_hysteresis,
+        };
+        let neutral = NeutralPose {
+            yaw: config.neutral_yaw,
+            pitch: config.neutral_pitch,
+        };
         let classification = classifier::classify(
             detected_pose,
-            None,
-            None,
+            Some(neutral),
+            Some(thresholds),
             Some(self.state.prev_classification),
         );
         self.state.prev_classification = classification;
@@ -140,6 +161,7 @@ impl Detector for FakeDetector {
 mod tests {
     use super::*;
     use crate::domain::classifier::HeadPose;
+    use crate::domain::config::ConfigStore;
     use crate::domain::posture_tick_engine::SenseEvent;
 
     struct FakeCamera {
@@ -167,6 +189,16 @@ mod tests {
         frames: Vec<Option<Frame>>,
         pose: Option<HeadPose>,
     ) -> MonitoringWorker<FakeCamera> {
+        make_worker_with_config(frames, pose, Arc::new(
+            ConfigState::new(ConfigStore::new(tempfile::tempdir().unwrap().path())).unwrap(),
+        ))
+    }
+
+    fn make_worker_with_config(
+        frames: Vec<Option<Frame>>,
+        pose: Option<HeadPose>,
+        config_state: Arc<ConfigState>,
+    ) -> MonitoringWorker<FakeCamera> {
         let camera = FakeCamera { frames, idx: 0 };
         let det: Option<Box<dyn Detector>> = pose.map(|p| {
             Box::new(FakeDetector { pose: Some(p) }) as Box<dyn Detector>
@@ -175,6 +207,7 @@ mod tests {
             camera,
             det,
             PostureTickEngine::default(),
+            config_state,
         )
     }
 
@@ -231,7 +264,10 @@ mod tests {
         };
         let det: Option<Box<dyn Detector>> =
             Some(Box::new(FakeDetector { pose: Some(HeadPose { yaw: 6.0, pitch: 0.0 }) }));
-        let mut w = MonitoringWorker::new(cam, det, PostureTickEngine::default());
+        let cs = Arc::new(
+            ConfigState::new(ConfigStore::new(tempfile::tempdir().unwrap().path())).unwrap(),
+        );
+        let mut w = MonitoringWorker::new(cam, det, PostureTickEngine::default(), cs);
         w.set_snoozed(true);
         let out = w.tick(0.1);
         assert!(out.sense_events.is_empty());
@@ -253,5 +289,53 @@ mod tests {
         w.detector = None;
         let out2 = w.tick(0.1);
         assert_eq!(out2.pose_state, PoseState::NoFace);
+    }
+
+    #[test]
+    fn classify_uses_user_configured_thresholds() {
+        let dir = tempfile::tempdir().unwrap();
+        let cs = Arc::new(ConfigState::new(ConfigStore::new(dir.path())).unwrap());
+        // 默认 yaw_threshold=5.0，yaw=6.0 会判为 OffAxisRight
+        let mut w = make_worker_with_config(
+            vec![Some(fake_frame(640, 480))],
+            Some(HeadPose { yaw: 6.0, pitch: 0.0 }),
+            cs.clone(),
+        );
+        let out = w.tick(0.1);
+        assert_eq!(out.pose_state, PoseState::OffAxisRight);
+
+        // 放宽阈值到 20.0，yaw=6.0 应判为 FacingScreen
+        cs.update(|c| c.yaw_threshold = 20.0).unwrap();
+        let mut w2 = make_worker_with_config(
+            vec![Some(fake_frame(640, 480))],
+            Some(HeadPose { yaw: 6.0, pitch: 0.0 }),
+            cs.clone(),
+        );
+        let out2 = w2.tick(0.1);
+        assert_eq!(out2.pose_state, PoseState::FacingScreen);
+    }
+
+    #[test]
+    fn classify_uses_user_configured_neutral_pose() {
+        let dir = tempfile::tempdir().unwrap();
+        let cs = Arc::new(ConfigState::new(ConfigStore::new(dir.path())).unwrap());
+        // 中性偏航=0，默认阈值=5.0，yaw=4.0 → FacingScreen
+        let mut w = make_worker_with_config(
+            vec![Some(fake_frame(640, 480))],
+            Some(HeadPose { yaw: 4.0, pitch: 0.0 }),
+            cs.clone(),
+        );
+        let out = w.tick(0.1);
+        assert_eq!(out.pose_state, PoseState::FacingScreen);
+
+        // 中性偏航=-5.0，yaw=4.0 → 偏离=9.0 > 5.0 → OffAxisRight
+        cs.update(|c| c.neutral_yaw = -5.0).unwrap();
+        let mut w2 = make_worker_with_config(
+            vec![Some(fake_frame(640, 480))],
+            Some(HeadPose { yaw: 4.0, pitch: 0.0 }),
+            cs.clone(),
+        );
+        let out2 = w2.tick(0.1);
+        assert_eq!(out2.pose_state, PoseState::OffAxisRight);
     }
 }

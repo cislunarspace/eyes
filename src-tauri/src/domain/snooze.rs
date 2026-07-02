@@ -45,10 +45,51 @@ fn parse_iso_as_utc(value: &str) -> Result<OffsetDateTime, ()> {
     }
 }
 
+/// 根据分钟数计算暂停状态。`0` 表示无限期暂停。
+pub fn compute_snooze_from_minutes(minutes: u32) -> SnoozeState {
+    if minutes == 0 {
+        return SnoozeState::Indefinite;
+    }
+    let until = OffsetDateTime::now_utc() + time::Duration::minutes(minutes as i64);
+    let until_iso = until
+        .format(&Iso8601::DEFAULT)
+        .unwrap_or_default();
+    SnoozeState::Active { until_iso }
+}
+
 fn format_utc(value: OffsetDateTime) -> String {
     let format = format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]+00:00");
     value
         .to_offset(time::UtcOffset::UTC)
         .format(&format)
         .expect("UTC ISO formatting should be infallible")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_minutes_returns_indefinite() {
+        assert_eq!(compute_snooze_from_minutes(0), SnoozeState::Indefinite);
+    }
+
+    #[test]
+    fn non_zero_minutes_returns_active_with_future_iso() {
+        let before = OffsetDateTime::now_utc();
+        let state = compute_snooze_from_minutes(15);
+        let after = OffsetDateTime::now_utc();
+
+        match state {
+            SnoozeState::Active { until_iso } => {
+                let until = parse_iso_as_utc(&until_iso).unwrap();
+                // until 应在 [before+15min, after+15min] 范围内
+                let expected_lo = before + time::Duration::minutes(15);
+                let expected_hi = after + time::Duration::minutes(15);
+                assert!(until >= expected_lo - time::Duration::seconds(1));
+                assert!(until <= expected_hi + time::Duration::seconds(1));
+            }
+            other => panic!("expected Active, got {:?}", other),
+        }
+    }
 }
