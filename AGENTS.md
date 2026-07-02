@@ -1,3 +1,5 @@
+`````
+
 ## 交流语言
 
 始终使用中文与用户交流。代码、commit message、PR 描述等技术输出也用中文。
@@ -12,20 +14,6 @@
 - **废话应当尽量除去**。
 - **通俗、亲切，由小讲到大，由近讲到远，引人入胜**：先讲读者已知／当前的事物，再推到陌生／抽象的；忌一上来就宏大叙事或先搬死人、外国人。
 - **与读者完全平等**：靠分析说服，不要装腔作势来吓人；老老实实办事。
-
-## Agent skills
-
-### Issue tracker
-
-Issues live as GitHub Issues. Uses the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default triage labels: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: one `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
 
 ## 编码准则
 
@@ -209,3 +197,5 @@ async def send_welcome_email(user):
 **失控重构。** 你开始修一处。它碰到另一处。那处又碰到另一处。二十分钟后你改了 15 个文件，不确定自己最初要干什么。如果修复开始级联，停下。告诉用户发生了什么。继续之前先取得同意。
 
 这些准则起作用的标志是：diff 里不必要改动更少、因过度复杂而返工更少、澄清问题发生在实现之前而不是犯错之后。
+
+`````
